@@ -1,0 +1,7 @@
+{
+  "appId": "com.vincent.rangespreflop",
+  "appName": "Ranges Preflop GTO",
+  "webDir": "www",
+  "server": { "androidScheme": "https" },
+  "backgroundColor": "#071523"
+}

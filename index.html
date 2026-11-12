@@ -1,0 +1,2715 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Ranges Preflop GTO — Winamax</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>body{background:#071523;color:#fff;font-family:system-ui,-apple-system,sans-serif;margin:0;padding:12px}
+#__loader{position:fixed;top:0;left:0;right:0;bottom:0;background:#071523;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99;color:#FF5CA8;font-weight:600;text-align:center;padding:20px}
+#__diag{font-size:11px;color:#6E93B8;text-align:center;padding:6px}
+.spin{animation:sp 1s linear infinite}@keyframes sp{to{transform:rotate(360deg)}}</style>
+</head>
+<body>
+<div id="__loader"><div class="spin" style="font-size:40px">🎯</div><div style="margin-top:14px">Chargement des ranges GTO…<br>PATIENTE 30-90s au premier lancement</div></div>
+<div id="__diag"></div>
+<div id="root"></div>
+<script>
+window.__okCss=true;
+function loadSeq(urls,i){return new Promise((res,rej)=>{if(i>=urls.length)return rej(new Error('all failed'));var s=document.createElement('script');s.src=urls[i];s.onload=()=>res();s.onerror=()=>loadSeq(urls,i+1).then(res,rej);document.head.appendChild(s);});}
+function showDiag(){document.getElementById('__diag').innerHTML=['React: '+(window.__okReact?'OK':'ECHEC'),'ReactDOM: '+(window.__okRD?'OK':'ECHEC'),'Compilateur: '+(window.__okComp||'ECHEC'),'Styles: '+(window.__okCss?'OK':'ECHEC')].join(' · ');}
+(async function(){
+try{
+await loadSeq(['https://unpkg.com/react@18/umd/react.production.min.js','https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js'],0);window.__okReact=true;showDiag();
+await loadSeq(['https://unpkg.com/react-dom@18/umd/react-dom.production.min.js','https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js'],0);window.__okRD=true;showDiag();
+const src=document.getElementById('__appsrc').textContent;
+try{
+const {transform}=await import('https://esm.sh/sucrase@3.35.0');
+window.__okComp='Sucrase';showDiag();
+new Function(transform(src,{transforms:['typescript','jsx']}).code)();
+}catch(eSuc){
+window.__okComp='Babel (secours)…';showDiag();
+try{globalThis.Babel=(await import('https://esm.sh/@babel/standalone')).Babel;}catch(e){}
+if(!globalThis.Babel){await loadSeq(['https://unpkg.com/@babel/standalone/babel.min.js','https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js'],0);}
+window.__okComp='Babel';showDiag();
+new Function(Babel.transform(src,{presets:['typescript','react'],filename:'app.tsx'}).code)();
+}
+document.getElementById('__loader').style.display='none';
+}catch(e){showDiag();document.getElementById('__diag').innerHTML+=' — ERREUR: '+e.message;document.getElementById('__loader').style.display='none';}
+})();
+</script>
+<script type="text/plain" id="__appsrc">
+const { useState, useMemo, useRef, useEffect, useCallback, useContext } = React;
+// ---- Shims UI ----
+function shimCls(extra){return 'relative '+extra;}
+const Select = ({value,onValueChange,children}) => { const [open,setOpen]=useState(false); const ref=useRef(null);
+  useEffect(()=>{const h=(e)=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);};document.addEventListener('mousedown',h);document.addEventListener('touchstart',h);return()=>{document.removeEventListener('mousedown',h);document.removeEventListener('touchstart',h);};},[]);
+  return React.createElement('div',{ref,className:'relative inline-block'},React.cloneElement(React.Children.toArray(children).find(c=>c.type===SelectTrigger)||React.createElement('div'),{onClick:()=>setOpen(!open),_open:open}),
+  open?React.createElement('div',{className:'absolute z-50 mt-1 w-full max-h-72 overflow-auto rounded-md border bg-[#0A1D30] text-sm text-white'},React.Children.toArray(children).find(c=>c.type===SelectContent)&&React.Children.toArray(React.Children.toArray(children).find(c=>c.type===SelectContent).props.children).map(it=>React.cloneElement(it,{_sel:value,_pick:onValueChange}))):null);};
+SelectTrigger = ({children,_open,onClick,className=''}) => React.createElement('button',{onClick,className:'flex w-full items-center justify-between rounded-md border border-[#1A4260] bg-[#0A1D30] px-3 py-2 text-sm text-white'},children,React.createElement('span',{className:'text-[#FF5CA8]'},_open?'▲':'▼'));
+SelectContent = ({children}) => React.createElement('div',null,children);
+SelectItem = ({value,children,_sel,_pick}) => React.createElement('div',{onClick:()=>_pick&&_pick(value),className:'px-3 py-2 cursor-pointer hover:bg-[#123350]'+(_sel===value?' bg-[#123350] text-[#FF5CA8]':' text-white')},children);
+SelectValue = ({placeholder}) => React.createElement('span',null,placeholder||'');
+const Card = ({children,className=''}) => React.createElement('div',{className:'rounded-lg border border-[#1A4260] bg-[#0A1D30] p-4 '+className},children);
+const CardContent = ({children,className=''}) => React.createElement('div',{className:className},children);
+const Badge = ({children,className=''}) => React.createElement('span',{className:'inline-flex items-center rounded-full px-2 py-0.5 text-xs '+className},children);
+
+// ============================================================
+// DATA — pokerRanges.ts
+// ============================================================
+
+const RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'] as const;
+
+type Action = 'raise' | 'call' | 'fold' | 'threeBet' | 'allIn';
+type Position = 'LJ' | 'HJ' | 'CO' | 'BTN' | 'SB' | 'BB';
+const POSITIONS: Position[] = ['LJ', 'HJ', 'CO', 'BTN', 'SB', 'BB'];
+
+const POSITION_FULL_NAMES: Record<Position, string> = {
+  LJ: 'Lojack (UTG)', HJ: 'Hijack (UTG+1)', CO: 'Cutoff',
+  BTN: 'Bouton', SB: 'Petite Blind', BB: 'Grosse Blind',
+};
+const ACTION_LABELS: Record<Action, string> = {
+  raise: 'Relance (Raise)', call: 'Suivre (Call)', fold: 'Se coucher (Fold)',
+  threeBet: '3-Bet', allIn: 'All-In',
+};
+
+type ScenarioType = 'RFI' | 'vs3Bet' | 'facing_RFI' | 'vs4Bet' | 'allIn';
+const SCENARIOS: { value: ScenarioType; label: string; description: string }[] = [
+  { value: 'RFI', label: 'RFI', description: 'Relance First In — ouvrir quand personne n\'a relancé' },
+  { value: 'vs3Bet', label: 'vs 3-Bet', description: 'Réponse après avoir RFI et reçu un 3-Bet' },
+  { value: 'facing_RFI', label: 'Face à un RFI', description: 'Réponse face à une relance d\'ouverture' },
+  { value: 'vs4Bet', label: 'vs 4-Bet', description: 'Réponse après avoir 3-bet et reçu un 4-bet' },
+  { value: 'allIn', label: 'All-In / Push-Fold', description: 'Ranges de push All-In (short stack ≤20bb)' },
+];
+
+function getHandLabel(row: number, col: number): string {
+  const r1 = RANKS[row], r2 = RANKS[col];
+  if (row === col) return `${r1}${r2}`;
+  if (row < col) return `${r1}${r2}s`;
+  return `${r2}${r1}o`;
+}
+function getHandType(row: number, col: number): 'pair' | 'suited' | 'offsuit' {
+  if (row === col) return 'pair';
+  if (row < col) return 'suited';
+  return 'offsuit';
+}
+function handToCoords(hand: string): [number, number] {
+  const r1 = RANKS.indexOf(hand[0] as never);
+  const r2 = RANKS.indexOf(hand[1] as never);
+  if (r1 === -1 || r2 === -1) return [-1, -1];
+  if (hand.length === 2) return [r1, r1];
+  if (hand[2] === 's') return [Math.min(r1, r2), Math.max(r1, r2)];
+  return [Math.max(r1, r2), Math.min(r1, r2)];
+}
+function makeGrid<T>(defaultVal: T): T[][] {
+  return Array.from({ length: 13 }, () => Array(13).fill(defaultVal) as T[]);
+}
+function setHands(grid: boolean[][], hands: string[]) {
+  hands.forEach(h => { const [r, c] = handToCoords(h); if (r !== -1) grid[r][c] = true; });
+  return grid;
+}
+
+const RFI_RANGES: Record<Position, boolean[][]> = {
+  LJ: setHands(makeGrid(false), ['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A5s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','AKo','AQo','AJo']),
+  HJ: setHands(makeGrid(false), ['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','A8s','A5s','KQs','KJs','KTs','QJs','QTs','JTs','J9s','T9s','98s','87s','AKo','AQo','AJo','KQo']),
+  CO: setHands(makeGrid(false), ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','JTs','J9s','J8s','T9s','T8s','T7s','98s','97s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','QJo','QTo','JTo']),
+  BTN: setHands(makeGrid(false), ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','Q5s','Q4s','Q3s','Q2s','JTs','J9s','J8s','J7s','J6s','J5s','J4s','T9s','T8s','T7s','T6s','T5s','98s','97s','96s','95s','87s','86s','85s','76s','75s','74s','65s','64s','63s','54s','53s','52s','43s','42s','32s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','A2o','KQo','KJo','KTo','K9o','K8o','K7o','QJo','QTo','Q9o','Q8o','JTo','J9o','J8o','T9o','T8o','98o','97o','87o','86o','76o','65o']),
+  SB: setHands(makeGrid(false), ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','Q5s','JTs','J9s','J8s','J7s','J6s','T9s','T8s','T7s','T6s','98s','97s','96s','95s','87s','86s','85s','76s','75s','74s','65s','64s','63s','54s','53s','43s','42s','32s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','KQo','KJo','KTo','K9o','K8o','QJo','QTo','Q9o','Q8o','JTo','J9o','T9o','T8o','98o','97o','87o','76o']),
+  BB: makeGrid(false),
+};
+
+type ActionGrid = { action: Action }[][];
+function makeActionGrid(def: Action = 'fold'): ActionGrid {
+  return Array.from({ length: 13 }, () => Array.from({ length: 13 }, () => ({ action: def })));
+}
+function setActionHands(grid: ActionGrid, hands: [string, Action][]) {
+  hands.forEach(([h, a]) => { const [r, c] = handToCoords(h); if (r !== -1) grid[r][c] = { action: a }; });
+  return grid;
+}
+
+const VS3BET_RANGES: Record<Position, ActionGrid> = {
+  LJ: setActionHands(makeActionGrid(), [
+    ...(['AA','KK','QQ','AKs'] as string[]).map(h => [h, 'raise'] as [string, Action]),
+    ...(['JJ','TT','AQs','AJs','AKo','AQo','KQs'] as string[]).map(h => [h, 'call'] as [string, Action]),
+  ]),
+  HJ: setActionHands(makeActionGrid(), [
+    ...(['AA','KK','QQ','AKs','AKo'] as string[]).map(h => [h, 'raise'] as [string, Action]),
+    ...(['JJ','TT','99','AQs','AJs','ATs','AQo','KQs','KJs','QJs','JTs'] as string[]).map(h => [h, 'call'] as [string, Action]),
+  ]),
+  CO: setActionHands(makeActionGrid(), [
+    ...(['AA','KK','QQ','AKs','AKo','AQs'] as string[]).map(h => [h, 'raise'] as [string, Action]),
+    ...(['JJ','TT','99','88','AJs','ATs','A5s','A4s','AQo','AJo','KQs','KJs','QJs','JTs','T9s','98s'] as string[]).map(h => [h, 'call'] as [string, Action]),
+  ]),
+  BTN: setActionHands(makeActionGrid(), [
+    ...(['AA','KK','QQ','AKs','AKo','AQs','AQo','A5s','A4s'] as string[]).map(h => [h, 'raise'] as [string, Action]),
+    ...(['JJ','TT','99','88','77','AJs','ATs','A9s','A3s','A2s','AJo','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','97s','87s','76s','65s','54s'] as string[]).map(h => [h, 'call'] as [string, Action]),
+  ]),
+  SB: setActionHands(makeActionGrid(), [
+    ...(['AA','KK','QQ','AKs','AKo','AQs'] as string[]).map(h => [h, 'raise'] as [string, Action]),
+    ...(['JJ','TT','99','88','AJs','ATs','A5s','A4s','AQo','AJo','KQs','KJs','QJs','JTs','T9s'] as string[]).map(h => [h, 'call'] as [string, Action]),
+  ]),
+  BB: makeActionGrid(),
+};
+
+const FACING_RFI_RANGES: Record<Position, ActionGrid> = {
+  LJ: makeActionGrid(),
+  HJ: setActionHands(makeActionGrid(), [
+    ...(['AA','KK','QQ','AKs','AKo','A5s'] as string[]).map(h => [h, 'threeBet'] as [string, Action]),
+    ...(['JJ','TT','AQs','AJs','AQo','KQs'] as string[]).map(h => [h, 'call'] as [string, Action]),
+  ]),
+  CO: setActionHands(makeActionGrid(), [
+    ...(['AA','KK','QQ','AKs','AKo','AQs','A5s','A4s'] as string[]).map(h => [h, 'threeBet'] as [string, Action]),
+    ...(['JJ','TT','99','AJs','ATs','AQo','KQs','KJs','QJs','JTs','T9s','98s'] as string[]).map(h => [h, 'call'] as [string, Action]),
+  ]),
+  BTN: setActionHands(makeActionGrid(), [
+    ...(['AA','KK','QQ','AKs','AKo','AQs','AQo','A5s','A4s','A3s','K9s','Q9s','J9s','T8s','97s','86s','75s','64s','53s'] as string[]).map(h => [h, 'threeBet'] as [string, Action]),
+    ...(['JJ','TT','99','88','77','66','AJs','ATs','A9s','A8s','A7s','A6s','AJo','ATo','KQs','KJs','KTs','KQo','KJo','QJs','QTs','QJo','JTs','T9s','98s','87s','76s','65s','54s'] as string[]).map(h => [h, 'call'] as [string, Action]),
+  ]),
+  SB: setActionHands(makeActionGrid(), [
+    ...(['AA','KK','QQ','JJ','TT','AKs','AQs','AJs','ATs','A9s','A5s','A4s','A3s','A2s','AKo','AQo','AJo','KQs','KJs','KTs','K9s','QJs','QTs','JTs','T9s','98s','87s','76s','65s','54s'] as string[]).map(h => [h, 'threeBet'] as [string, Action]),
+  ]),
+  BB: setActionHands(makeActionGrid(), [
+    ...(['AA','KK','QQ','AKs','AKo','A5s','A4s','A3s','A2s','K9s','Q9s','J8s','T8s','97s','86s','75s','64s','53s'] as string[]).map(h => [h, 'threeBet'] as [string, Action]),
+    ...(['JJ','TT','99','88','77','66','55','44','33','22','AQs','AJs','ATs','A9s','A8s','A7s','A6s','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','KQs','KJs','KTs','K8s','K7s','K6s','K5s','K4s','K3s','K2s','KQo','KJo','KTo','K9o','K8o','QJs','QTs','Q8s','Q7s','Q6s','Q5s','Q4s','QJo','QTo','Q9o','JTs','J9s','J7s','J6s','J5s','JTo','J9o','T9s','T7s','T6s','T9o','98s','96s','95s','87s','85s','84s','76s','74s','65s','63s','54s','52s','43s','42s','32s'] as string[]).map(h => [h, 'call'] as [string, Action]),
+  ]),
+};
+
+const VS4BET_RANGES: Record<Position, ActionGrid> = {
+  LJ: setActionHands(makeActionGrid(), [
+    ...(['AA','KK'] as string[]).map(h => [h, 'allIn'] as [string, Action]),
+    ...(['QQ','AKs'] as string[]).map(h => [h, 'call'] as [string, Action]),
+  ]),
+  HJ: setActionHands(makeActionGrid(), [
+    ...(['AA','KK'] as string[]).map(h => [h, 'allIn'] as [string, Action]),
+    ...(['QQ','AKs','AKo'] as string[]).map(h => [h, 'call'] as [string, Action]),
+  ]),
+  CO: setActionHands(makeActionGrid(), [
+    ...(['AA','KK','AKs'] as string[]).map(h => [h, 'allIn'] as [string, Action]),
+    ...(['QQ','JJ','AQs','AKo'] as string[]).map(h => [h, 'call'] as [string, Action]),
+  ]),
+  BTN: setActionHands(makeActionGrid(), [
+    ...(['AA','KK','AKs','A5s'] as string[]).map(h => [h, 'allIn'] as [string, Action]),
+    ...(['QQ','JJ','TT','AQs','AQo','AKo','AJs'] as string[]).map(h => [h, 'call'] as [string, Action]),
+  ]),
+  SB: setActionHands(makeActionGrid(), [
+    ...(['AA','KK','AKs'] as string[]).map(h => [h, 'allIn'] as [string, Action]),
+    ...(['QQ','JJ','AQs','AKo'] as string[]).map(h => [h, 'call'] as [string, Action]),
+  ]),
+  BB: setActionHands(makeActionGrid(), [
+    ...(['AA','KK'] as string[]).map(h => [h, 'allIn'] as [string, Action]),
+    ...(['QQ','JJ','AKs','AKo','AQs'] as string[]).map(h => [h, 'call'] as [string, Action]),
+  ]),
+};
+
+type AllInDepth = '10bb' | '15bb' | '20bb';
+const ALLIN_DEPTHS: { value: AllInDepth; label: string; description: string }[] = [
+  { value: '10bb', label: '10 BB', description: 'Short stack extrême — push or fold pur' },
+  { value: '15bb', label: '15 BB', description: 'Short stack — push élargi selon position' },
+  { value: '20bb', label: '20 BB', description: 'Short stack standard — push sélectif' },
+];
+
+const ALLIN_10BB: Record<Position, ActionGrid> = {
+  LJ: setActionHands(makeActionGrid(), [...(['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','QJs','QTs','JTs','AKo','AQo','AJo','ATo','A9o','KQo'] as string[]).map(h => [h, 'allIn'] as [string, Action])]),
+  HJ: setActionHands(makeActionGrid(), [...(['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','JTs','J9s','T9s','98s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo'] as string[]).map(h => [h, 'allIn'] as [string, Action])]),
+  CO: setActionHands(makeActionGrid(), [...(['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','64s','54s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','KQo','KJo','KTo','K9o','QJo','QTo','JTo'] as string[]).map(h => [h, 'allIn'] as [string, Action])]),
+  BTN: setActionHands(makeActionGrid(), [...(['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','Q5s','JTs','J9s','J8s','J7s','J6s','T9s','T8s','T7s','T6s','98s','97s','96s','87s','86s','85s','76s','75s','74s','65s','64s','63s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','A2o','KQo','KJo','KTo','K9o','K8o','K7o','QJo','QTo','Q9o','Q8o','JTo','J9o','J8o','T9o','T8o','98o','97o','87o','86o','76o'] as string[]).map(h => [h, 'allIn'] as [string, Action])]),
+  SB: setActionHands(makeActionGrid(), [...(['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','Q5s','Q4s','JTs','J9s','J8s','J7s','J6s','J5s','T9s','T8s','T7s','T6s','98s','97s','96s','95s','87s','86s','85s','76s','75s','74s','65s','64s','63s','54s','53s','52s','43s','42s','32s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','A2o','KQo','KJo','KTo','K9o','K8o','K7o','QJo','QTo','Q9o','Q8o','JTo','J9o','J8o','T9o','T8o','98o','97o','87o','86o','76o','75o','65o'] as string[]).map(h => [h, 'allIn'] as [string, Action])]),
+  BB: setActionHands(makeActionGrid(), [...(['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A5s','KQs','KJs','KTs','K9s','QJs','QTs','JTs','AKo','AQo','AJo','ATo','A9o','KQo','KJo'] as string[]).map(h => [h, 'call'] as [string, Action])]),
+};
+const ALLIN_15BB: Record<Position, ActionGrid> = {
+  LJ: setActionHands(makeActionGrid(), [...(['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A5s','A4s','KQs','KJs','KTs','QJs','AKo','AQo','AJo','ATo','KQo'] as string[]).map(h => [h, 'allIn'] as [string, Action])]),
+  HJ: setActionHands(makeActionGrid(), [...(['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','A8s','A5s','A4s','KQs','KJs','KTs','QJs','QTs','JTs','AKo','AQo','AJo','ATo','KQo','KJo'] as string[]).map(h => [h, 'allIn'] as [string, Action])]),
+  CO: setActionHands(makeActionGrid(), [...(['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','97s','87s','86s','76s','65s','54s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','QJo'] as string[]).map(h => [h, 'allIn'] as [string, Action])]),
+  BTN: setActionHands(makeActionGrid(), [...(['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','QJs','QTs','Q9s','Q8s','Q7s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','98s','97s','96s','87s','86s','85s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','KQo','KJo','KTo','K9o','K8o','QJo','QTo','Q9o','JTo','J9o','T9o','T8o','98o','87o'] as string[]).map(h => [h, 'allIn'] as [string, Action])]),
+  SB: setActionHands(makeActionGrid(), [...(['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','JTs','J9s','J8s','J7s','J6s','T9s','T8s','T7s','T6s','98s','97s','96s','87s','86s','85s','76s','75s','74s','65s','64s','63s','54s','53s','43s','42s','32s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','A2o','KQo','KJo','KTo','K9o','K8o','K7o','QJo','QTo','Q9o','JTo','J9o','T9o','T8o','98o','97o','87o','86o','76o'] as string[]).map(h => [h, 'allIn'] as [string, Action])]),
+  BB: setActionHands(makeActionGrid(), [...(['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A5s','KQs','KJs','QJs','AKo','AQo','AJo','KQo'] as string[]).map(h => [h, 'call'] as [string, Action])]),
+};
+const ALLIN_20BB: Record<Position, ActionGrid> = {
+  LJ: setActionHands(makeActionGrid(), [...(['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A5s','KQs','KJs','AKo','AQo','AJo'] as string[]).map(h => [h, 'allIn'] as [string, Action])]),
+  HJ: setActionHands(makeActionGrid(), [...(['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A8s','A5s','A4s','KQs','KJs','KTs','QJs','AKo','AQo','AJo','ATo','KQo'] as string[]).map(h => [h, 'allIn'] as [string, Action])]),
+  CO: setActionHands(makeActionGrid(), [...(['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','QJs','QTs','JTs','T9s','98s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','QJo'] as string[]).map(h => [h, 'allIn'] as [string, Action])]),
+  BTN: setActionHands(makeActionGrid(), [...(['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','64s','54s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','T9o'] as string[]).map(h => [h, 'allIn'] as [string, Action])]),
+  SB: setActionHands(makeActionGrid(), [...(['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','98s','97s','96s','87s','86s','85s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','A2o','KQo','KJo','KTo','K9o','K8o','QJo','QTo','Q9o','JTo','J9o','T9o','98o','87o'] as string[]).map(h => [h, 'allIn'] as [string, Action])]),
+  BB: setActionHands(makeActionGrid(), [...(['AA','KK','QQ','JJ','TT','99','88','AKs','AQs','AJs','ATs','A9s','KQs','KJs','AKo','AQo','AJo'] as string[]).map(h => [h, 'call'] as [string, Action])]),
+};
+const ALLIN_BY_DEPTH: Record<AllInDepth, Record<Position, ActionGrid>> = {
+  '10bb': ALLIN_10BB, '15bb': ALLIN_15BB, '20bb': ALLIN_20BB,
+};
+
+interface CellData { action: Action; label: string; type: 'pair' | 'suited' | 'offsuit'; combos: number; }
+function getCombos(type: 'pair' | 'suited' | 'offsuit'): number {
+  if (type === 'pair') return 6;
+  if (type === 'suited') return 4;
+  return 12;
+}
+
+function getRangeData(position: Position, scenario: ScenarioType, allInDepth?: AllInDepth): CellData[][] {
+  if (scenario === 'RFI') {
+    const rfi = RFI_RANGES[position];
+    return RANKS.map((_, row) => RANKS.map((_, col) => {
+      const type = getHandType(row, col);
+      return { action: rfi[row][col] ? 'raise' as Action : 'fold' as Action, label: getHandLabel(row, col), type, combos: getCombos(type) };
+    }));
+  }
+  if (scenario === 'allIn') {
+    const data = ALLIN_BY_DEPTH[allInDepth || '20bb'][position];
+    return RANKS.map((_, row) => RANKS.map((_, col) => {
+      const type = getHandType(row, col);
+      return { action: data[row][col].action, label: getHandLabel(row, col), type, combos: getCombos(type) };
+    }));
+  }
+  const scenarioMap: Record<string, Record<Position, ActionGrid>> = {
+    vs3Bet: VS3BET_RANGES, facing_RFI: FACING_RFI_RANGES, vs4Bet: VS4BET_RANGES,
+  };
+  const data = scenarioMap[scenario][position];
+  return RANKS.map((_, row) => RANKS.map((_, col) => {
+    const type = getHandType(row, col);
+    return { action: data[row][col].action, label: getHandLabel(row, col), type, combos: getCombos(type) };
+  }));
+}
+
+function countActions(data: CellData[][]): Record<Action, { count: number; combos: number }> {
+  const counts: Record<Action, { count: number; combos: number }> = {
+    raise: { count: 0, combos: 0 }, call: { count: 0, combos: 0 }, fold: { count: 0, combos: 0 },
+    threeBet: { count: 0, combos: 0 }, allIn: { count: 0, combos: 0 },
+  };
+  data.forEach(row => row.forEach(cell => { counts[cell.action].count++; counts[cell.action].combos += cell.combos; }));
+  return counts;
+}
+
+// ============================================================
+// DATA — tournamentRanges.ts
+// ============================================================
+
+type StackDepth = 'veryDeep' | 'deep' | 'mid' | 'short';
+type TournamentPhase = 'early' | 'midgame' | 'bubble' | 'itm' | 'finalTable';
+type BuyIn = '5' | '20' | '50' | '100' | 'multiday2' | 'multiday3' | 'trilogy5' | 'trilogy15' | 'trilogy50';
+
+const BUY_INS: { value: BuyIn; label: string; description: string }[] = [
+  { value: '5', label: '5€', description: 'Field récréatif — ranges plus larges, exploitation des erreurs adverses' },
+  { value: '20', label: '20€', description: 'Field mixte — ranges légèrement élargies, bon équilibre GTO/exploit' },
+  { value: '50', label: '50€', description: 'Field régulier — ranges proches du GTO pur' },
+  { value: '100', label: '100€+', description: 'Field tough — ranges GTO strictes, pas de déviation' },
+  { value: 'trilogy5', label: 'Trilogy 3 jours · 5€', description: 'Field très récréatif mais structure lente : Jour 1 patient et sélectif, ouverture dès le Jour 2 (ICM différé)' },
+  { value: 'trilogy15', label: 'Trilogy 3 jours · 15€', description: 'Field mixte, niveaux longs : jeu deep proche du cash le Jour 1, pression ICM concentrée Jour 2/3' },
+  { value: 'trilogy50', label: 'Trilogy 3 jours · 50€', description: 'Field régulier, structure très lente : ranges quasi GTO, agressivité positionnelle sur stacks profonds' },
+  { value: 'multiday2', label: '2 Jours (200€+)', description: 'Structure lente — niveaux 40-60min, stacks profonds plus longtemps, patience maximale' },
+  { value: 'multiday3', label: '3 Jours (Main Event)', description: 'Structure très lente — niveaux 60-90min, jeu proche du cash game, ICM différé' },
+];
+
+const STACK_DEPTHS: { value: StackDepth; label: string; description: string; bbRange: string }[] = [
+  { value: 'veryDeep', label: 'Très deep (100bb+)', description: 'Stacks très profonds — jeu quasi cash game, playabilité maximale', bbRange: '100-250bb' },
+  { value: 'deep', label: 'Deep (50-100bb)', description: 'Stacks profonds — jeu proche du cash game avec ajustements ICM légers', bbRange: '50-100bb' },
+  { value: 'mid', label: 'Mid (25-50bb)', description: 'Phase intermédiaire — ranges resserrées, sizing réduit, 3-bet shove fréquent', bbRange: '25-50bb' },
+  { value: 'short', label: 'Short (15-25bb)', description: 'Phase tardive — open-shove, resteal, et push/fold simplifié', bbRange: '15-25bb' },
+];
+
+const TOURNAMENT_PHASES: { value: TournamentPhase; label: string; description: string }[] = [
+  { value: 'early', label: 'Début de tournoi', description: 'Pas de pression ICM, jeu agressif avec position' },
+  { value: 'midgame', label: 'Mid-game', description: 'Blindes en hausse — ranges légèrement resserrées, début de pression ICM' },
+  { value: 'bubble', label: 'Bulle', description: 'ICM maximal — ranges très serrées sauf gros stacks' },
+  { value: 'itm', label: 'Dans les places payées', description: 'ICM modéré — reprise de l\'agressivité' },
+  { value: 'finalTable', label: 'Table Finale', description: 'ICM fort — pay jumps significatifs, ajustements dynamiques' },
+];
+
+const DEEP_EARLY_RFI: Record<Position, string[]> = {
+  LJ: ['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A5s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','AKo','AQo','AJo'],
+  HJ: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','A8s','A5s','KQs','KJs','KTs','QJs','QTs','JTs','J9s','T9s','98s','87s','AKo','AQo','AJo','KQo'],
+  CO: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','JTs','J9s','J8s','T9s','T8s','T7s','98s','97s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','QJo','QTo','JTo'],
+  BTN: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','K2s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','Q5s','Q4s','Q3s','Q2s','JTs','J9s','J8s','J7s','J6s','J5s','J4s','T9s','T8s','T7s','T6s','T5s','98s','97s','96s','95s','87s','86s','85s','76s','75s','74s','65s','64s','63s','54s','53s','52s','43s','42s','32s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','A3o','A2o','KQo','KJo','KTo','K9o','K8o','K7o','QJo','QTo','Q9o','Q8o','JTo','J9o','J8o','T9o','T8o','98o','97o','87o','86o','76o','65o'],
+  SB: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','Q5s','JTs','J9s','J8s','J7s','J6s','T9s','T8s','T7s','T6s','98s','97s','96s','95s','87s','86s','85s','76s','75s','74s','65s','64s','63s','54s','53s','43s','42s','32s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','KQo','KJo','KTo','K9o','K8o','QJo','QTo','Q9o','Q8o','JTo','J9o','T9o','T8o','98o','97o','87o','76o'],
+  BB: [],
+};
+const DEEP_BUBBLE_RFI: Record<Position, string[]> = {
+  LJ: ['AA','KK','QQ','JJ','TT','99','88','AKs','AQs','AJs','ATs','A5s','KQs','KJs','QJs','JTs','AKo','AQo'],
+  HJ: ['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A5s','A4s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','AKo','AQo','AJo'],
+  CO: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','A8s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','97s','87s','76s','65s','AKo','AQo','AJo','ATo','KQo','KJo'],
+  BTN: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','QJs','QTs','Q9s','Q8s','Q7s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','98s','97s','96s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','KQo','KJo','KTo','QJo','QTo','JTo','T9o'],
+  SB: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','65s','54s','43s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','QJo','JTo','T9o'],
+  BB: [],
+};
+const DEEP_ITM_RFI: Record<Position, string[]> = {
+  LJ: ['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A5s','A4s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','87s','AKo','AQo','AJo'],
+  HJ: ['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A8s','A5s','A4s','A3s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','87s','76s','65s','AKo','AQo','AJo','ATo','KQo'],
+  CO: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','T7s','98s','97s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','QJo','QTo','JTo','T9o'],
+  BTN: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','Q5s','JTs','J9s','J8s','J7s','J6s','T9s','T8s','T7s','T6s','98s','97s','96s','87s','86s','85s','76s','75s','74s','65s','64s','63s','54s','53s','43s','42s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A5o','A4o','KQo','KJo','KTo','K9o','K8o','QJo','QTo','Q9o','JTo','J9o','T9o','T8o','98o','97o','87o','76o','65o'],
+  SB: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','QJs','QTs','Q9s','Q8s','Q7s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','98s','97s','96s','87s','86s','76s','75s','65s','64s','54s','53s','43s','32s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A5o','KQo','KJo','KTo','K9o','QJo','QTo','Q9o','JTo','J9o','T9o','T8o','98o','87o','76o'],
+  BB: [],
+};
+const DEEP_FT_RFI: Record<Position, string[]> = {
+  LJ: ['AA','KK','QQ','JJ','TT','99','AKs','AQs','AJs','ATs','A5s','KQs','KJs','QJs','JTs','AKo','AQo'],
+  HJ: ['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A5s','A4s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','AKo','AQo','AJo'],
+  CO: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','A8s','A5s','A4s','A3s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','97s','87s','76s','65s','AKo','AQo','AJo','ATo','KQo','KJo'],
+  BTN: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','QJs','QTs','Q9s','Q8s','Q7s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','98s','97s','96s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','QJo','QTo','JTo','T9o'],
+  SB: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','65s','54s','43s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','QJo','JTo','T9o'],
+  BB: [],
+};
+const DEEP_MIDGAME_RFI: Record<Position, string[]> = {
+  LJ: ['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A5s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','AKo','AQo','AJo'],
+  HJ: ['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A8s','A5s','A4s','KQs','KJs','KTs','K9s','QJs','QTs','JTs','J9s','T9s','98s','87s','AKo','AQo','AJo','KQo'],
+  CO: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','QJs','QTs','Q9s','Q8s','Q7s','JTs','J9s','J8s','T9s','T8s','T7s','98s','97s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','QJo','QTo','JTo'],
+  BTN: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','K3s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','Q5s','Q4s','JTs','J9s','J8s','J7s','J6s','J5s','T9s','T8s','T7s','T6s','98s','97s','96s','87s','86s','85s','76s','75s','74s','65s','64s','63s','54s','53s','43s','42s','32s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A6o','A5o','A4o','KQo','KJo','KTo','K9o','K8o','QJo','QTo','Q9o','Q8o','JTo','J9o','T9o','T8o','98o','97o','87o','76o','65o'],
+  SB: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','98s','97s','96s','87s','86s','85s','76s','75s','65s','64s','54s','53s','43s','32s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A5o','KQo','KJo','KTo','K9o','QJo','QTo','Q9o','JTo','J9o','T9o','T8o','98o','87o','76o'],
+  BB: [],
+};
+const MID_EARLY_RFI: Record<Position, string[]> = {
+  LJ: ['AA','KK','QQ','JJ','TT','99','88','AKs','AQs','AJs','ATs','A5s','A4s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','87s','AKo','AQo','AJo'],
+  HJ: ['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A8s','A5s','A4s','A3s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','87s','76s','65s','AKo','AQo','AJo','ATo','KQo'],
+  CO: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','54s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','QJo','QTo','JTo'],
+  BTN: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','98s','97s','96s','87s','86s','85s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A5o','KQo','KJo','KTo','K9o','QJo','QTo','Q9o','JTo','J9o','T9o','T8o','98o','87o','76o'],
+  SB: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','QJs','QTs','Q9s','Q8s','Q7s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','98s','97s','96s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A5o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','T9o','98o','87o'],
+  BB: [],
+};
+const MID_BUBBLE_RFI: Record<Position, string[]> = {
+  LJ: ['AA','KK','QQ','JJ','TT','99','AKs','AQs','AJs','KQs','AKo','AQo'],
+  HJ: ['AA','KK','QQ','JJ','TT','99','88','AKs','AQs','AJs','ATs','A5s','KQs','KJs','QJs','JTs','AKo','AQo','AJo'],
+  CO: ['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A5s','A4s','A3s','KQs','KJs','KTs','K9s','QJs','QTs','JTs','J9s','T9s','98s','87s','76s','AKo','AQo','AJo','ATo','KQo'],
+  BTN: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','T7s','98s','97s','87s','86s','76s','75s','65s','64s','54s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','QJo','QTo','JTo','T9o'],
+  SB: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','A8s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','76s','65s','54s','AKo','AQo','AJo','ATo','KQo','KJo','QJo','T9o'],
+  BB: [],
+};
+const MID_ITM_RFI: Record<Position, string[]> = {
+  LJ: ['AA','KK','QQ','JJ','TT','99','88','AKs','AQs','AJs','ATs','A5s','A4s','KQs','KJs','KTs','QJs','JTs','T9s','98s','AKo','AQo','AJo'],
+  HJ: ['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A5s','A4s','A3s','KQs','KJs','KTs','K9s','QJs','QTs','JTs','J9s','T9s','98s','87s','76s','AKo','AQo','AJo','ATo','KQo'],
+  CO: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','A8s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','Q8s','JTs','J9s','T9s','T8s','98s','97s','87s','86s','76s','65s','54s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','QJo','QTo','JTo'],
+  BTN: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','98s','97s','96s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','KQo','KJo','KTo','K9o','QJo','QTo','Q9o','JTo','J9o','T9o','T8o','98o','87o','76o'],
+  SB: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','65s','54s','43s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','T9o','98o','87o'],
+  BB: [],
+};
+const MID_FT_RFI: Record<Position, string[]> = {
+  LJ: ['AA','KK','QQ','JJ','TT','99','AKs','AQs','AJs','A5s','KQs','KJs','QJs','AKo','AQo'],
+  HJ: ['AA','KK','QQ','JJ','TT','99','88','AKs','AQs','AJs','ATs','A9s','A5s','A4s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','AKo','AQo','AJo'],
+  CO: ['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A8s','A5s','A4s','A3s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','87s','76s','65s','AKo','AQo','AJo','ATo','KQo','KJo'],
+  BTN: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','T7s','98s','97s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','QJo','QTo','JTo','T9o'],
+  SB: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','A8s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','76s','65s','54s','AKo','AQo','AJo','ATo','KQo','KJo','QJo','T9o'],
+  BB: [],
+};
+const MID_MIDGAME_RFI: Record<Position, string[]> = {
+  LJ: ['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A5s','A4s','KQs','KJs','KTs','QJs','JTs','T9s','98s','AKo','AQo','AJo'],
+  HJ: ['AA','KK','QQ','JJ','TT','99','88','77','66','AKs','AQs','AJs','ATs','A9s','A5s','A4s','A3s','KQs','KJs','KTs','K9s','QJs','QTs','JTs','J9s','T9s','98s','87s','76s','AKo','AQo','AJo','ATo','KQo'],
+  CO: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','A8s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','Q8s','JTs','J9s','T9s','T8s','98s','97s','87s','86s','76s','65s','54s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','QJo','QTo'],
+  BTN: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','98s','97s','96s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A5o','KQo','KJo','KTo','K9o','QJo','QTo','Q9o','JTo','J9o','T9o','T8o','98o','87o','76o'],
+  SB: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','65s','54s','43s','AKo','AQo','AJo','ATo','A9o','A8o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','T9o','98o','87o'],
+  BB: [],
+};
+const SHORT_EARLY_RFI: Record<Position, string[]> = {
+  LJ: ['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A5s','KQs','KJs','QJs','AKo','AQo'],
+  HJ: ['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A8s','A5s','A4s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','AKo','AQo','AJo','ATo','KQo'],
+  CO: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','97s','87s','76s','65s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','QJo'],
+  BTN: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','QJs','QTs','Q9s','Q8s','Q7s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','98s','97s','96s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A5o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','J9o','T9o','98o','87o'],
+  SB: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','K4s','QJs','QTs','Q9s','Q8s','Q7s','Q6s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','98s','97s','96s','87s','86s','85s','76s','75s','65s','64s','54s','53s','43s','42s','32s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A5o','A4o','KQo','KJo','KTo','K9o','K8o','QJo','QTo','Q9o','JTo','J9o','T9o','T8o','98o','97o','87o','76o'],
+  BB: [],
+};
+const SHORT_MIDGAME_RFI: Record<Position, string[]> = {
+  LJ: ['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A5s','KQs','KJs','QJs','AKo','AQo'],
+  HJ: ['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A5s','A4s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','AKo','AQo','AJo','KQo'],
+  CO: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','A8s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','97s','87s','76s','65s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','QJo'],
+  BTN: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','QJs','QTs','Q9s','Q8s','Q7s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','98s','97s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','J9o','T9o','98o','87o'],
+  SB: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','QJs','QTs','Q9s','Q8s','Q7s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','98s','97s','96s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','A5o','KQo','KJo','KTo','K9o','K8o','QJo','QTo','Q9o','JTo','J9o','T9o','T8o','98o','87o','76o'],
+  BB: [],
+};
+const SHORT_BUBBLE_RFI: Record<Position, string[]> = {
+  LJ: ['AA','KK','QQ','JJ','TT','AKs','AQs','AKo'],
+  HJ: ['AA','KK','QQ','JJ','TT','99','AKs','AQs','AJs','A5s','KQs','AKo','AQo'],
+  CO: ['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A5s','KQs','KJs','KTs','QJs','JTs','T9s','98s','AKo','AQo','AJo','KQo'],
+  BTN: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','A8s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','65s','54s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','QJo','JTo'],
+  SB: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','97s','87s','76s','65s','54s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','QJo','T9o'],
+  BB: [],
+};
+const SHORT_ITM_RFI: Record<Position, string[]> = {
+  LJ: ['AA','KK','QQ','JJ','TT','99','88','AKs','AQs','AJs','ATs','A5s','A4s','KQs','KJs','QJs','AKo','AQo','AJo'],
+  HJ: ['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A5s','A4s','A3s','KQs','KJs','KTs','QJs','QTs','JTs','T9s','98s','87s','AKo','AQo','AJo','ATo','KQo'],
+  CO: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','A8s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','97s','87s','76s','65s','54s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','QJo','QTo'],
+  BTN: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','K5s','QJs','QTs','Q9s','Q8s','Q7s','JTs','J9s','J8s','J7s','T9s','T8s','T7s','98s','97s','96s','87s','86s','76s','75s','65s','64s','54s','53s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A7o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','J9o','T9o','98o','87o'],
+  SB: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A6s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','K6s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','98s','97s','87s','86s','76s','75s','65s','54s','43s','AKo','AQo','AJo','ATo','A9o','A8o','A5o','KQo','KJo','KTo','K9o','QJo','QTo','JTo','T9o','98o','87o'],
+  BB: [],
+};
+const SHORT_FT_RFI: Record<Position, string[]> = {
+  LJ: ['AA','KK','QQ','JJ','TT','AKs','AQs','AJs','A5s','KQs','AKo','AQo'],
+  HJ: ['AA','KK','QQ','JJ','TT','99','AKs','AQs','AJs','ATs','A5s','A4s','KQs','KJs','QJs','JTs','AKo','AQo','AJo'],
+  CO: ['AA','KK','QQ','JJ','TT','99','88','77','AKs','AQs','AJs','ATs','A9s','A8s','A5s','A4s','A3s','KQs','KJs','KTs','K9s','QJs','QTs','JTs','J9s','T9s','T8s','98s','87s','76s','65s','AKo','AQo','AJo','ATo','KQo','KJo'],
+  BTN: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','AKs','AQs','AJs','ATs','A9s','A8s','A7s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','K7s','QJs','QTs','Q9s','Q8s','JTs','J9s','J8s','T9s','T8s','T7s','98s','97s','87s','86s','76s','75s','65s','64s','54s','53s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','KTo','QJo','QTo','JTo','T9o'],
+  SB: ['AA','KK','QQ','JJ','TT','99','88','77','66','55','AKs','AQs','AJs','ATs','A9s','A8s','A5s','A4s','A3s','A2s','KQs','KJs','KTs','K9s','K8s','QJs','QTs','Q9s','JTs','J9s','T9s','T8s','98s','97s','87s','76s','65s','54s','AKo','AQo','AJo','ATo','A9o','KQo','KJo','QJo'],
+  BB: [],
+};
+const VERYDEEP_EXTRA: Record<Position, string[]> = {
+  LJ: ['55','44','A4s','A3s','A2s','K9s','Q9s','J9s','T8s','87s','76s','65s','54s'],
+  HJ: ['44','33','A3s','A2s','K8s','K7s','Q8s','J8s','T8s','97s','76s','65s','54s','ATo'],
+  CO: ['K5s','K4s','K3s','K2s','Q5s','Q4s','J7s','J6s','T6s','96s','85s','74s','63s','52s','A7o','A6o','A5o','Q9o'],
+  BTN: ['Q3s','Q2s','J3s','J2s','T4s','T3s','93s','92s','82s','72s','J7o','T7o','96o','86o','75o','65o','54o'],
+  SB: ['J5s','J4s','T5s','T4s','94s','93s','84s','83s','73s','A3o','A2o','K7o','K6o','Q7o','J8o','T8o','98o'],
+  BB: [],
+};
+const HALF_EXTRA: Record<Position, string[]> = {
+  LJ: ['A4s','A3s','65s','54s'],
+  HJ: ['A3s','A2s','T8s','76s'],
+  CO: ['K5s','Q5s','J7s','96s','A6o'],
+  BTN: ['Q3s','J3s','T4s','93s','J7o','T7o'],
+  SB: ['J5s','T5s','94s','A3o','K7o'],
+  BB: [],
+};
+function widen(base: Record<Position, string[]>, extra: Record<Position, string[]>): Record<Position, string[]> {
+  const out = {} as Record<Position, string[]>;
+  (Object.keys(base) as Position[]).forEach(pos => {
+    out[pos] = Array.from(new Set([...base[pos], ...(extra[pos] || [])]));
+  });
+  return out;
+}
+const VERYDEEP_EARLY_RFI = widen(DEEP_EARLY_RFI, VERYDEEP_EXTRA);
+const VERYDEEP_MIDGAME_RFI = widen(DEEP_MIDGAME_RFI, VERYDEEP_EXTRA);
+const VERYDEEP_BUBBLE_RFI = widen(DEEP_BUBBLE_RFI, HALF_EXTRA);
+const VERYDEEP_ITM_RFI = widen(DEEP_ITM_RFI, HALF_EXTRA);
+const VERYDEEP_FT_RFI = widen(DEEP_FT_RFI, HALF_EXTRA);
+
+const TOURNAMENT_RFI: Record<StackDepth, Record<TournamentPhase, Record<Position, string[]>>> = {
+  veryDeep: { early: VERYDEEP_EARLY_RFI, midgame: VERYDEEP_MIDGAME_RFI, bubble: VERYDEEP_BUBBLE_RFI, itm: VERYDEEP_ITM_RFI, finalTable: VERYDEEP_FT_RFI },
+  deep: { early: DEEP_EARLY_RFI, midgame: DEEP_MIDGAME_RFI, bubble: DEEP_BUBBLE_RFI, itm: DEEP_ITM_RFI, finalTable: DEEP_FT_RFI },
+  mid: { early: MID_EARLY_RFI, midgame: MID_MIDGAME_RFI, bubble: MID_BUBBLE_RFI, itm: MID_ITM_RFI, finalTable: MID_FT_RFI },
+  short: { early: SHORT_EARLY_RFI, midgame: SHORT_MIDGAME_RFI, bubble: SHORT_BUBBLE_RFI, itm: SHORT_ITM_RFI, finalTable: SHORT_FT_RFI },
+};
+
+const BUYIN_EXTRA_HANDS: Record<BuyIn, Record<Position, string[]>> = {
+  '100': { LJ: [], HJ: [], CO: [], BTN: [], SB: [], BB: [] },
+  '50': { LJ: ['66'], HJ: ['A2s'], CO: ['33','K5s'], BTN: ['K3s','Q3s'], SB: ['K2s','Q4s'], BB: [] },
+  '20': { LJ: ['66','55','A2s','K9s','T9s'], HJ: ['55','A2s','K8s','Q8s','T8s','86s'], CO: ['33','22','K5s','K4s','Q7s','J7s','T6s','95s','85s','74s','63s','52s','A7o'], BTN: ['K3s','K2s','Q3s','Q2s','J5s','J4s','T5s','94s','84s','73s','62s','A3o','A2o','K6o','Q7o','J7o','T7o','97o'], SB: ['K2s','Q4s','Q3s','J5s','T5s','93s','83s','72s','A3o','A2o','K7o','Q7o','J8o','T7o'], BB: [] },
+  '5': { LJ: ['66','55','44','A2s','A8s','K9s','K8s','T9s','T8s','97s','86s','76s','65s','ATo','KJo'], HJ: ['55','44','33','A2s','K8s','K7s','Q8s','Q7s','T8s','T7s','97s','96s','86s','85s','75s','64s','53s','A9o','KTo','QJo'], CO: ['33','22','K5s','K4s','K3s','Q7s','Q6s','Q5s','J7s','J6s','T6s','T5s','95s','94s','85s','84s','74s','73s','63s','62s','52s','A7o','A6o','A5o','A4o','K9o','K8o','QTo','Q9o','J9o','T8o','98o','87o'], BTN: ['K3s','K2s','Q3s','Q2s','J5s','J4s','J3s','T5s','T4s','94s','93s','84s','83s','73s','72s','62s','A3o','A2o','K6o','K5o','Q7o','Q6o','J7o','J6o','T7o','T6o','97o','96o','86o','75o','64o','54o'], SB: ['K2s','Q4s','Q3s','Q2s','J5s','J4s','T5s','T4s','93s','92s','83s','82s','72s','A3o','A2o','K7o','K6o','Q7o','Q6o','J8o','J7o','T7o','T6o','96o','85o','75o','64o'], BB: [] },
+  'trilogy5': { LJ: ['66','55','A2s','T9s'], HJ: ['55','A2s','K8s','T8s'], CO: ['33','22','K5s','K4s','Q7s','J7s','T6s','95s','85s','A7o'], BTN: ['K3s','K2s','Q3s','Q2s','J5s','T5s','94s','84s','73s','A3o','A2o','K6o','Q7o','J7o','T7o'], SB: ['K2s','Q4s','Q3s','J5s','T5s','93s','A3o','A2o','K7o','J8o'], BB: [] },
+  'trilogy15': { LJ: ['66'], HJ: ['A2s','K9s'], CO: ['33','K5s','Q7s','T6s'], BTN: ['K3s','K2s','Q3s','J5s','T5s','A3o','K6o'], SB: ['K2s','Q4s','J5s','A3o'], BB: [] },
+  'trilogy50': { LJ: [], HJ: [], CO: [], BTN: [], SB: [], BB: [] },
+  'multiday2': { LJ: [], HJ: [], CO: [], BTN: [], SB: [], BB: [] },
+  'multiday3': { LJ: [], HJ: [], CO: [], BTN: [], SB: [], BB: [] },
+};
+
+function getTournamentRFI(position: Position, stack: StackDepth, phase: TournamentPhase, buyIn: BuyIn = '100'): boolean[][] {
+  const hands = TOURNAMENT_RFI[stack][phase][position];
+  const extra = BUYIN_EXTRA_HANDS[buyIn][position] || [];
+  return setHands(makeGrid(false), [...hands, ...extra]);
+}
+
+// ============================================================
+// DATA — expressoRanges.ts (données réelles du projet)
+// ============================================================
+
+type ExpressoPosition = 'BTN' | 'SB' | 'BB';
+
+type ExpressoStack = '25bb' | '20bb' | '15bb' | '12bb' | '10bb' | '8bb' | '5bb';
+
+const EXPRESSO_STACKS: { value: ExpressoStack; label: string; description: string }[] = [
+  { value: '25bb', label: '25bb (départ)', description: 'Début d\'Expresso — open min-raise, jeu postflop possible' },
+  { value: '20bb', label: '20bb', description: 'Encore du jeu postflop, 3-bet shove déjà rentable' },
+  { value: '15bb', label: '15bb', description: 'Zone de transition — open-raise + shove mixtes' },
+  { value: '12bb', label: '12bb', description: 'Pré-push/fold — resteal shove très fréquent' },
+  { value: '10bb', label: '10bb', description: 'Push/fold quasi total, open-shove large au BTN' },
+  { value: '8bb', label: '8bb', description: 'Push/fold pur (Nash 3-max)' },
+  { value: '5bb', label: '5bb', description: 'Push/fold extrême — shove/call très larges' },
+];
+
+type ExpressoScenario = 'BTN_RFI' | 'SB_vs_BTN' | 'BB_vs_BTN' | 'SB_RFI' | 'BB_vs_SB';
+
+const EXPRESSO_SCENARIOS: { value: ExpressoScenario; label: string; description: string; position: ExpressoPosition }[] = [
+  { value: 'BTN_RFI', label: 'BTN — Ouverture (RFI)', description: 'BTN premier de parole : open min-raise (2bb) ou open-shove selon la profondeur. Range la plus large du jeu 3-max.', position: 'BTN' },
+  { value: 'SB_vs_BTN', label: 'SB — Face à l\'open BTN', description: 'SB face à un open du bouton : 3-bet shove (ou 3-bet non-all-in en deep), call en position fermée, sinon fold.', position: 'SB' },
+  { value: 'BB_vs_BTN', label: 'BB — Face à l\'open BTN', description: 'BB face à un open du bouton avec le SB encore actif : défense légèrement plus serrée qu\'en heads-up.', position: 'BB' },
+  { value: 'SB_RFI', label: 'SB — Ouverture (BTN fold)', description: 'BTN couché : configuration heads-up SB vs BB. Range d\'ouverture très large.', position: 'SB' },
+  { value: 'BB_vs_SB', label: 'BB — Face à l\'open SB', description: 'Défense de BB en heads-up contre l\'open du SB : call très large, 3-bet shove polarisé.', position: 'BB' },
+];
+
+// ---- Range string parser — "22+, A5s+, KTo+, 76s, 55-88" ----
+
+const R = RANKS as readonly string[];
+const idx = (c: string) => R.indexOf(c);
+
+function expandToken(token: string): string[] {
+  const t = token.trim();
+  if (!t) return [];
+
+  const pairRange = t.match(/^([2-9TJQKA])\1-([2-9TJQKA])\2$/);
+  if (pairRange) {
+    const a = idx(pairRange[1]);
+    const b = idx(pairRange[2]);
+    const [hi, lo] = [Math.min(a, b), Math.max(a, b)];
+    return R.slice(hi, lo + 1).map(r => r + r);
+  }
+
+  const pairPlus = t.match(/^([2-9TJQKA])\1\+$/);
+  if (pairPlus) {
+    const a = idx(pairPlus[1]);
+    return R.slice(0, a + 1).map(r => r + r);
+  }
+
+  if (/^([2-9TJQKA])\1$/.test(t)) return [t];
+
+  const nonPairRange = t.match(/^([2-9TJQKA])([2-9TJQKA])([so])-([2-9TJQKA])([2-9TJQKA])\3$/);
+  if (nonPairRange && nonPairRange[1] === nonPairRange[4]) {
+    const hi = idx(nonPairRange[1]);
+    const a = idx(nonPairRange[2]);
+    const b = idx(nonPairRange[5]);
+    const suit = nonPairRange[3];
+    const [top, bottom] = [Math.min(a, b), Math.max(a, b)];
+    const out: string[] = [];
+    for (let k = top; k <= bottom; k++) if (k > hi) out.push(R[hi] + R[k] + suit);
+    return out;
+  }
+
+  const nonPairPlus = t.match(/^([2-9TJQKA])([2-9TJQKA])([so])\+$/);
+  if (nonPairPlus) {
+    const hi = idx(nonPairPlus[1]);
+    const lo = idx(nonPairPlus[2]);
+    const suit = nonPairPlus[3];
+    const out: string[] = [];
+    for (let k = lo; k > hi; k--) out.push(R[hi] + R[k] + suit);
+    return out;
+  }
+
+  if (/^([2-9TJQKA])([2-9TJQKA])[so]$/.test(t)) return [t];
+
+  return [];
+}
+
+function parseRange(range: string): string[] {
+  return range.split(',').flatMap(expandToken);
+}
+
+// ---- Range definitions per scenario / stack ----
+
+interface ActionRanges { allIn?: string; raise?: string; threeBet?: string; call?: string; note: string; }
+type ScenarioTable = Record<ExpressoStack, ActionRanges>;
+
+const BTN_RFI: ScenarioTable = {
+  '25bb': { raise: '22+, A2s+, K3s+, Q6s+, J8s+, T8s+, 97s+, 86s+, 75s+, 64s+, 54s, A2o+, K7o+, Q8o+, J9o+, T9o', note: 'Open min-raise 2bb sur ~41% des mains (solveur 3-max : ~40%). On garde les mains suitées jouables : on joue le postflop en position sur deux joueurs.' },
+  '20bb': { raise: '22+, A2s+, K4s+, Q7s+, J8s+, T8s+, 97s+, 86s+, 76s, 65s, A2o+, K8o+, Q9o+, JTo, T9o', note: 'Open-raise ~37% (ajusté solveur 3-max). Prépare le 4-bet shove : AJo+/ATs+/99+ partent all-in face à un 3-bet.' },
+  '15bb': { raise: '22+, A2s+, K4s+, Q7s+, J8s+, T8s+, 97s+, 86s+, 76s, 65s, A2o+, K8o+, Q9o+, JTo, T9o', allIn: 'AA, KK', note: 'Open-raise ~37% (ajusté solveur). Les grosses paires restent en raise (piège), le shove direct n\'est pas nécessaire à cette profondeur.' },
+  '12bb': { raise: '22-JJ, A2s+, K4s+, Q7s+, J8s+, T8s+, 97s+, 87s, 76s, 65s, A2o+, K8o+, Q9o+, JTo, T9o', allIn: 'QQ+, A9s+, ATo+, KJs+, QJs', note: 'Stratégie mixte ajustée (~37% au total) : open-shove avec les monstres et les suited aces à fold equity ; min-raise avec les mains jouables.' },
+  '10bb': { allIn: '22+, A2s+, K3s+, Q6s+, J8s+, T8s+, 97s+, 86s+, 76s, 65s, A2o+, K7o+, Q9o+, JTo, T9o', note: 'Push/fold : open-shove ~38% au bouton (solveur 3-max : 40-45%). À 10bb l\'open-raise perd de la valeur face à deux joueurs prêts à re-shove.' },
+  '8bb': { allIn: '22+, A2s+, K2s+, Q2s+, J5s+, T6s+, 96s+, 85s+, 75s+, 65s, A2o+, K5o+, Q8o+, J8o+, T8o+, 98o', note: 'Nash 3-max : open-shove ~50%. Toute main suitée avec un peu d\'équité passe.' },
+  '5bb': { allIn: '22+, A2s+, K2s+, Q2s+, J2s+, T4s+, 95s+, 84s+, 74s+, 63s+, 53s+, 43s, A2o+, K2o+, Q5o+, J7o+, T7o+, 97o+, 87o', note: 'Open-shove ~65-70%. À 5bb, folder devient l\'erreur principale : on shove toute main correcte.' },
+};
+
+const SB_VS_BTN: ScenarioTable = {
+  '25bb': { threeBet: '99+, AJs+, AQo+, A5s-A2s, KQs, 76s, 65s, 54s', call: '22-88, A2s-ATs, K7s+, Q9s+, J9s+, T8s+, 98s, 87s, 76s, 65s, ATo+, KJo+, QJo', note: '3-bet ~8-10% (solveur) : value + suited-ace bluffs + connectors, et call en position fermée. Attention : la BB peut squeezer, on évite le call marginal.' },
+  '20bb': { threeBet: '88+, AJs+, AQo+, A5s, A4s, KQs', call: '22-77, A2s-ATs, K8s+, Q9s+, J9s+, T9s, 98s, 87s, 76s, ATo+, KJo+, QJo', note: 'À 20bb, le 3-bet non-all-in reste jouable (à 3x) ; avec 88-TT on préfère souvent le 3-bet shove face à un open large.' },
+  '15bb': { allIn: '66+, ATs+, AJo+, A5s, A4s, KQs', call: '22-55, A2s-A9s, K9s+, QTs+, JTs, T9s, 98s, ATo, KJo+, QJo', note: '3-bet shove ~13-15% : la fold equity contre un open 2bb est maximale. Le call devient rare, la SB étant hors de position sur la BB.' },
+  '12bb': { allIn: '44+, A7s+, ATo+, A5s, A4s, KTs+, QJs, KQo', note: 'Push/fold : re-shove ~14%. On abandonne le call, un flop à 10bb effectifs hors position n\'est pas rentable.' },
+  '10bb': { allIn: '33+, A5s+, A2s, A9o+, KTs+, K9s, QJs, QTs, JTs, KQo, KJo', note: 'Re-shove ~16% face à un open-shove ou un open-raise du bouton.' },
+  '8bb': { allIn: '22+, A2s+, K7s+, Q9s+, JTs, T9s, A7o+, KTo+, QJo', note: 'Nash : call/re-shove ~20%. À 8bb la cote du pot impose de payer large.' },
+  '5bb': { allIn: '22+, A2s+, K2s+, Q5s+, J7s+, T8s+, 98s, A2o+, K7o+, Q9o+, JTo', note: 'Call all-in ~35-40% : à 5bb, avec les blindes déjà investies, on paie toute main avec de l\'équité brute.' },
+};
+
+const BB_VS_BTN: ScenarioTable = {
+  '25bb': { threeBet: '77+, ATs+, AJo+, A5s-A2s, KQs, KJs, QJs, JTs, T9s, 98s, 87s, 76s, 65s, 54s', call: '22-77, A2s-ATs, K2s-KQs, Q3s+, J5s+, T6s+, 95s+, 85s+, 74s+, 64s+, 53s+, A2o+, K6o+, Q8o+, J8o+, T8o+, 98o', note: 'Défense totale ~49% (solveur : 3-bet 10-14%, call large avec la cote du pot). 3-bet polarisé : value core + suited-ace bluffs + connectors.' },
+  '20bb': { threeBet: '99+, AJs+, AQo+, A5s, A4s, KQs', call: '22-88, A2s-ATs, K3s-KJs, Q7s+, J8s+, T7s+, 96s+, 86s+, 75s+, 65s, A2o+, K9o+, Q9o+, J9o+, T9o', note: '3-bet à 3.5x hors de position ou shove avec JJ+/AK. Le reste défend en call.' },
+  '15bb': { allIn: '77+, ATs+, AJo+, A5s, A4s, KQs, KJs', call: '22-66, A2s-A9s, K5s-KJs, Q8s+, J8s+, T8s+, 97s+, 87s, 76s, 65s, A5o+, K9o+, QTo+, JTo', note: '3-bet shove ~12% + call large : on ferme l\'action et on voit un flop avec 13bb derrière.' },
+  '12bb': { allIn: '55+, A8s+, ATo+, A5s, A4s, KTs+, QJs, KQo', call: '22-44, A2s-A7s, K6s-K9s, Q9s+, J9s+, T8s+, 97s+, 87s, 76s, 65s, A8o+, KJo, QJo, JTo', note: 'Zone mixte : shove les mains à fold equity, call les paires et les suités connectées.' },
+  '10bb': { allIn: '33+, A2s+, K9s+, QTs+, JTs, A8o+, KTo+, QJo', call: '22, A9o-A2o, K8s-K2s, Q9s, J9s, T9s, 98s, 87s, KJo, KTo, QTo, JTo', note: 'Call all-in ~25% quand le BTN shove ; re-shove ~18% face à un open-raise.' },
+  '8bb': { allIn: '22+, A2s+, K5s+, Q8s+, J9s+, T9s, A5o+, K9o+, QTo+, JTo', call: 'A4o-A2o, K8o-K7o, Q9o, J9s, 98s, 87s, 76s', note: 'Nash : call ~32% face à un open-shove du bouton.' },
+  '5bb': { allIn: '22+, A2s+, K2s+, Q4s+, J6s+, T7s+, 96s+, 86s+, 76s, A2o+, K5o+, Q8o+, J8o+, T9o', call: 'K4o-K2o, Q7o-Q5o, J7o, T8o, 98o, 87o', note: 'Call ~50% : à 5bb, avec 1bb déjà investi, on paie toute main qui n\'est pas une pure ordure.' },
+};
+
+const SB_RFI: ScenarioTable = {
+  '25bb': { raise: '22+, A2s+, K2s+, Q2s+, J2s+, T2s+, 92s+, 82s+, 72s+, 62s+, 52s+, 42s+, 32s, A2o+, K2o+, Q2o+, J4o+, T6o+, 95o+, 85o+, 75o+, 65o', note: 'BTN couché = heads-up. Open-raise 2bb sur ~78% des mains ; seul le pire offsuit se couche.' },
+  '20bb': { raise: '22+, A2s+, K2s+, Q2s+, J2s+, T3s+, 94s+, 84s+, 74s+, 63s+, 53s+, 43s, A2o+, K2o+, Q5o+, J7o+, T7o+, 97o+, 87o', note: 'Open ~62%. En heads-up, limper n\'apporte rien : on raise ou on fold.' },
+  '15bb': { raise: '22+, A2s+, K2s+, Q2s+, J3s+, T5s+, 95s+, 85s+, 75s+, 64s+, 54s, A2o+, K3o+, Q6o+, J7o+, T8o+, 98o', note: 'Open ~55%. Face à un shove BB, on paie avec ~55-60% de sa range d\'open.' },
+  '12bb': { raise: '22+, A2s+, K2s+, Q4s+, J5s+, T6s+, 96s+, 86s+, 76s, A2o+, K5o+, Q7o+, J8o+, T8o+', note: 'Toujours en open-raise : la BB paie trop large pour qu\'un open-shove soit optimal.' },
+  '10bb': { allIn: '22+, A2s+, K2s+, Q2s+, J4s+, T6s+, 96s+, 85s+, 75s+, 65s, A2o+, K4o+, Q7o+, J8o+, T8o+, 98o', note: 'Push/fold heads-up (Nash 10bb) : open-shove ~60%.' },
+  '8bb': { allIn: '22+, A2s+, K2s+, Q2s+, J2s+, T4s+, 95s+, 84s+, 74s+, 64s+, 54s, A2o+, K2o+, Q5o+, J7o+, T7o+, 97o+, 87o', note: 'Open-shove ~70% (Nash HU 8bb).' },
+  '5bb': { allIn: '22+, A2s+, K2s+, Q2s+, J2s+, T2s+, 93s+, 83s+, 73s+, 62s+, 52s+, 42s+, 32s, A2o+, K2o+, Q2o+, J4o+, T6o+, 95o+, 85o+, 75o+, 65o', note: 'Open-shove ~88% : à 5bb en heads-up, on shove presque tout.' },
+};
+
+const BB_VS_SB: ScenarioTable = {
+  '25bb': { threeBet: '99+, AJs+, AQo+, A5s, A4s, A3s, KQs, KJs, 87s, 76s, 65s', call: '22-88, A2s-ATs, K2s-KTs, Q2s+, J4s+, T5s+, 94s+, 84s+, 74s+, 63s+, 53s+, 43s, A2o+, K5o+, Q8o+, J8o+, T8o+, 98o', note: 'Défense heads-up très large (~52%) : la cote du pot est excellente et le SB ouvre 80%.' },
+  '20bb': { threeBet: '88+, AJs+, AQo+, A5s, A4s, A3s, KQs, KJs, 76s, 65s', call: '22-77, A2s-ATs, K2s-KTs, Q3s+, J5s+, T5s+, 94s+, 84s+, 74s+, 64s+, 54s, A2o+, K6o+, Q8o+, J8o+, T8o+, 98o', note: 'Défense ~50%. 3-bet à 3x, ou shove avec JJ+/AK contre un adversaire qui 4-bet trop.' },
+  '15bb': { allIn: '66+, A9s+, ATo+, A5s, A4s, KJs+, KQo', call: '22-55, A8s-A6s, A3s, A2s, K4s-KTs, Q6s+, J7s+, T7s+, 96s+, 86s+, 75s+, 65s, A2o+, K9o+, Q9o+, JTo, T9o', note: '3-bet shove ~13% + défense en call très large : le stack effectif permet encore de jouer le flop.' },
+  '12bb': { allIn: '44+, A7s+, A9o+, A5s, A4s, KTs+, KQo, KJo', call: '22-33, A6s-A2s, K5s-K9s, Q8s+, J8s+, T8s+, 97s+, 87s, 76s, A2o+, KTo, QTo, JTo', note: 'Shove les mains à fold equity, call le reste : contre un open 2bb on défend ~55%.' },
+  '10bb': { allIn: '22+, A2s+, K8s+, Q9s+, JTs, A7o+, KTo+, QJo', call: 'A6o-A2o, K2s-K7s, Q5s+, J7s+, T7s+, 96s+, 86s+, 76s, K9o-K7o, Q9o, J9o, T9o, 98o', note: 'Nash HU 10bb : call all-in ~45%.' },
+  '8bb': { allIn: '22+, A2s+, K5s+, Q8s+, J8s+, T8s+, 98s, A5o+, K9o+, QTo+, JTo', call: 'A4o-A2o, K2s-K4s, Q4s+, J5s+, T6s+, 95s+, 85s+, 75s+, 65s, K8o-K5o, Q8o+, J8o+, T8o+, 97o+, 87o', note: 'Call ~58% face à un open-shove du SB (Nash HU 8bb).' },
+  '5bb': { allIn: '22+, A2s+, K2s+, Q4s+, J6s+, T7s+, 96s+, 86s+, 76s, A2o+, K6o+, Q8o+, J8o+, T8o+', call: 'K2s+, Q2s+, J2s+, T2s+, 92s+, 82s+, 72s+, 62s+, 52s+, 42s+, 32s, K2o+, Q2o+, J3o+, T5o+, 94o+, 84o+, 74o+, 64o+, 54o', note: 'À 5bb, la BB paie quasiment tout (~80%) : folder coûte plus que payer.' },
+};
+
+const EXPRESSO_TABLES: Record<ExpressoScenario, ScenarioTable> = {
+  BTN_RFI,
+  SB_vs_BTN: SB_VS_BTN,
+  BB_vs_BTN: BB_VS_BTN,
+  SB_RFI,
+  BB_vs_SB: BB_VS_SB,
+};
+
+function getExpressoNote(scenario: ExpressoScenario, stack: ExpressoStack): string {
+  return EXPRESSO_TABLES[scenario][stack].note;
+}
+
+function getExpressoRange(scenario: ExpressoScenario, stack: ExpressoStack): CellData[][] {
+  const def = EXPRESSO_TABLES[scenario][stack];
+  const grid: Action[][] = Array.from({ length: 13 }, () => Array<Action>(13).fill('fold'));
+
+  // Ordre de priorité : allIn > threeBet > raise > call
+  const layers: [Action, string | undefined][] = [
+    ['call', def.call],
+    ['raise', def.raise],
+    ['threeBet', def.threeBet],
+    ['allIn', def.allIn],
+  ];
+
+  layers.forEach(([action, range]) => {
+    if (!range) return;
+    parseRange(range).forEach(hand => {
+      const [r, c] = handToCoords(hand);
+      if (r !== -1) grid[r][c] = action;
+    });
+  });
+
+  return RANKS.map((_, row) => RANKS.map((_, col) => {
+    const type = getHandType(row, col);
+    return { action: grid[row][col], label: getHandLabel(row, col), type, combos: getCombos(type) };
+  }));
+}
+
+function actionsOfDef(def: ActionRanges): Action[] {
+  const actions: Action[] = [];
+  if (def.allIn) actions.push('allIn');
+  if (def.threeBet) actions.push('threeBet');
+  if (def.raise) actions.push('raise');
+  if (def.call) actions.push('call');
+  actions.push('fold');
+  return actions;
+}
+
+function getExpressoActions(scenario: ExpressoScenario, stack: ExpressoStack): Action[] {
+  return actionsOfDef(EXPRESSO_TABLES[scenario][stack]);
+}
+
+// ============================================================
+// LE TRIDENT — tournoi 2 jours, tables 3-max (dynamique Expresso)
+// Ranges dérivées des tables Expresso 3-max, ajustées par la pression ICM
+// propre à un multi-jours : Jour 1 (ICM modéré) / Jour 2 (bulle, ICM max).
+// Méthode : on retire les mains marginales de chaque couche d'action
+// (allIn > threeBet > raise > call) proportionnellement à la pression ICM.
+// ============================================================
+
+type TridentDay = 'day1' | 'day2';
+
+const TRIDENT_DAYS: { value: TridentDay; label: string; description: string; factors: Record<Action, number> }[] = [
+  {
+    value: 'day1',
+    label: 'Jour 1 — survie valorisée',
+    description: 'ICM modéré : on garde ~90% des ranges 3-max, seules les mains les plus marginales disparaissent',
+    factors: { raise: 0.92, call: 0.88, threeBet: 0.92, allIn: 0.92, fold: 1 },
+  },
+  {
+    value: 'day2',
+    label: 'Jour 2 — bulle de l\'argent',
+    description: 'ICM maximal : calls marginaux très resserrés, shoves sélectifs, priorité à la survie',
+    factors: { raise: 0.78, call: 0.65, threeBet: 0.75, allIn: 0.75, fold: 1 },
+  },
+];
+
+// Score de force d'une main ("AKs", "77", "T9o") — plus petit = plus fort
+function handStrength(hand: string): number {
+  const hi = idx(hand[0]);
+  const lo = idx(hand[1]);
+  if (hi === -1 || lo === -1) return 999;
+  const suited = hand.length > 2 && hand[2] === 's';
+  const pair = hi === lo;
+  return hi * 20 + lo * 2 + (pair ? 0 : suited ? 1 : 2);
+}
+
+// Garde les `keep` mains les plus fortes d'une range
+function trimRange(range: string, keep: number): string[] {
+  const hands = parseRange(range);
+  if (keep >= 1 || hands.length === 0) return hands;
+  const sorted = [...hands].sort((a, b) => handStrength(a) - handStrength(b));
+  return sorted.slice(0, Math.max(1, Math.ceil(sorted.length * keep)));
+}
+
+// ---- Tapis du Trident : profonds (début de tournoi) + bandes Expresso (short) ----
+
+type TridentStack = ExpressoStack | '200bb' | '150bb' | '100bb' | '50bb';
+
+const TRIDENT_STACKS: { value: TridentStack; label: string; description: string }[] = [
+  { value: '200bb', label: '200bb (départ Jour 1)', description: 'Début Jour 1 : jeu deep postflop, opens et 3-bets non all-in' },
+  { value: '150bb', label: '150bb', description: 'Deep : jeu postflop complet, value 3-bets et calls spéculatifs' },
+  { value: '100bb', label: '100bb', description: 'Profondeur standard : cotes implicites encore bonnes' },
+  { value: '50bb', label: '50bb', description: 'Milieu de tournoi : speculative hands en retrait, agressivité conservée' },
+  ...EXPRESSO_STACKS,
+];
+
+// Ranges deep 3-max (200/150/100bb) : min-raise, 3-bets non all-in, jeu postflop
+const TRIDENT_DEEP: Record<ExpressoScenario, ActionRanges> = {
+  BTN_RFI: { raise: '22+, A2s+, K2s+, Q2s+, J3s+, T5s+, 95s+, 84s+, 74s+, 63s+, 53s+, 43s, A2o+, K3o+, Q5o+, J7o+, T8o+, 97o+, 87o', note: 'BTN deep : open min-raise 2-2.5bb sur ~59% (3-max, position). Tout le suité jouable, jeu postflop en position sur deux joueurs.' },
+  SB_vs_BTN: { threeBet: '99+, AJs+, AQo+, A5s-A2s, KQs, 76s, 65s, 54s', call: '22-88, A2s-ATs, K2s+, Q4s+, J7s+, T6s+, 96s+, 85s+, 75s+, 65s, 54s, A9o+, KJo+, QJo', note: 'SB deep vs BTN : 3-bet non all-in (~8%) polarisé + call ~24% OOP. Le limp SB est une option solver en 3-max mais on simplifie en raise/call.' },
+  BB_vs_BTN: { threeBet: '66+, ATs+, AJo+, A5s-A2s, KQs, KJs, QJs, JTs, T9s, 98s, 87s, 76s, 65s, 54s', call: '22-77, A2s-AJs, K2s-KTs, Q2s+, J4s+, T5s+, 95s+, 85s+, 74s+, 64s+, 53s+, A2o+, K4o+, Q7o+, J8o+, T8o+, 98o, 87o', note: 'BB deep vs BTN : 3-bet ~12% + call ~49% avec la cote du pot — défense totale ~61%. On ferme l\'action, le call marginal est plus rentable qu\'en SB.' },
+  SB_RFI: { raise: '22+, A2s+, K2s+, Q2s+, J3s+, T4s+, 94s+, 84s+, 73s+, 63s+, 53s+, 43s, A2o+, K3o+, Q5o+, J7o+, T8o+, 97o+, 87o, 76o', note: 'SB deep (HU vs BB) : open ~61%. Range très large en HU, min-raise pour garder la largeur et jouer postflop.' },
+  BB_vs_SB: { threeBet: '66+, ATs+, AJo+, A5s-A2s, KQs, KJs, QJs, JTs, T9s, 98s, 87s, 76s, 65s, 54s', call: '22-99, A2s-ATs, K2s-K9s, Q2s+, J2s+, T3s+, 93s+, 83s+, 72s+, 62s+, 52s+, 42s+, 32s, A2o+, K2o+, Q5o+, J7o+, T8o+, 97o+, 87o, 76o', note: 'BB deep vs SB : défense ~73% du temps (3-bet ~12% + call ~61%) — folder la BB en HU deep est l\'erreur la plus coûteuse.' },
+};
+
+// Ranges 50bb : transition, mains spéculatives en retrait
+const TRIDENT_MID: Record<ExpressoScenario, ActionRanges> = {
+  BTN_RFI: { raise: '22+, A2s+, K2s+, Q5s+, J7s+, T7s+, 97s+, 86s+, 76s, 65s, 54s, A2o+, K5o+, Q8o+, J8o+, T9o, 98o', note: 'BTN 50bb : open ~45%. Moins de cotes implicites qu\'à 100bb+ : les suited connectors passent, pas les trash suited.' },
+  SB_vs_BTN: { threeBet: '99+, ATs+, AJo+, A5s-A2s, KQs, 76s, 65s', call: '22-88, A2s-A9s, K4s+, Q8s+, J8s+, T8s+, 98s, 87s, 76s, ATo+, KJo+, QJo', note: 'SB 50bb vs BTN : 3-bet ~9% linéaire, call ~18% — le call OOP marginal perd de la valeur sans profondeur.' },
+  BB_vs_BTN: { threeBet: '77+, ATs+, AJo+, A5s-A2s, KQs, KJs, QJs, JTs, T9s, 98s, 87s, 76s, 65s', call: '22-77, A2s-AJs, K2s-KTs, Q4s+, J6s+, T6s+, 96s+, 85s+, 75s+, 64s+, 53s, A2o+, K6o+, Q8o+, J8o+, T9o, 98o, 87o', note: 'BB 50bb vs BTN : 3-bet ~11% + call ~43% (défense ~55%), un cran plus serré qu\'à 100bb.' },
+  SB_RFI: { raise: '22+, A2s+, K2s+, Q4s+, J6s+, T6s+, 96s+, 85s+, 75s+, 64s+, 54s, A2o+, K4o+, Q7o+, J8o+, T8o+, 98o, 87o', note: 'SB 50bb (HU vs BB) : open ~51%. Encore très large en HU, mais les suited trash disparaissent.' },
+  BB_vs_SB: { threeBet: '99+, ATs+, AJo+, A5s-A2s, KQs, QJs, JTs, T9s, 98s, 87s, 76s, 65s', call: '22-99, A2s-ATs, K2s-KQs, Q2s+, J4s+, T4s+, 94s+, 84s+, 73s+, 63s+, 53s+, 43s, A2o+, K3o+, Q6o+, J8o+, T8o+, 97o+, 87o, 76o', note: 'BB 50bb vs SB : défense ~66% (3-bet ~10% + call ~56%). La cote du pot impose de défendre très large en HU.' },
+};
+
+function tridentDef(scenario: ExpressoScenario, stack: TridentStack): ActionRanges {
+  if (stack === '200bb' || stack === '150bb' || stack === '100bb') return TRIDENT_DEEP[scenario];
+  if (stack === '50bb') return TRIDENT_MID[scenario];
+  return EXPRESSO_TABLES[scenario][stack];
+}
+
+function getTridentRange(scenario: ExpressoScenario, stack: TridentStack, day: TridentDay, extra?: Partial<Record<Action, number>>): CellData[][] {
+  const def = tridentDef(scenario, stack);
+  const base = TRIDENT_DAYS.find(d => d.value === day)!.factors;
+  const factors: Record<Action, number> = { ...base };
+  (Object.keys(extra ?? {}) as Action[]).forEach(a => {
+    factors[a] = (factors[a] ?? 1) * (extra![a] ?? 1);
+  });
+  const grid: Action[][] = Array.from({ length: 13 }, () => Array<Action>(13).fill('fold'));
+  const layers: [Action, string | undefined][] = [
+    ['call', def.call],
+    ['raise', def.raise],
+    ['threeBet', def.threeBet],
+    ['allIn', def.allIn],
+  ];
+  layers.forEach(([action, range]) => {
+    if (!range) return;
+    trimRange(range, factors[action]).forEach(hand => {
+      const [r, c] = handToCoords(hand);
+      if (r !== -1) grid[r][c] = action;
+    });
+  });
+  return RANKS.map((_, row) => RANKS.map((_, col) => {
+    const type = getHandType(row, col);
+    return { action: grid[row][col], label: getHandLabel(row, col), type, combos: getCombos(type) };
+  }));
+}
+
+function getTridentNote(scenario: ExpressoScenario, stack: TridentStack, day: TridentDay): string {
+  const base = tridentDef(scenario, stack).note;
+  if (day === 'day1') return `Trident · Jour 1 : ${base} Ajustement ICM léger (-8 à -12% de mains marginales par rapport au jeu chip-EV).`;
+  return `Trident · Jour 2 : ${base} ICM fort : calls marginaux et shoves mixtes retirés (-25 à -35% par rapport au jeu chip-EV).`;
+}
+
+// ---- Contexte tournoi : joueurs restants + tapis moyen → pression relative ----
+// Compare ton tapis effectif au tapis moyen du field et adapte la façon de jouer :
+// gros tapis = pression maximale, petit tapis = survie + bascule push/fold plus tôt.
+
+interface TridentPressure {
+  label: string;
+  advice: string;
+  factors: Partial<Record<Action, number>>;
+}
+
+function tridentPressure(stackBB: number, avgBB: number, playersLeft: number): TridentPressure {
+  const ratio = avgBB > 0 ? stackBB / avgBB : 1;
+  // Fin de tournoi (peu de joueurs restants) : l'ICM se concentre, on resserre encore les calls marginaux
+  const endgame = playersLeft > 0 && playersLeft <= 18;
+  if (ratio >= 1.3) {
+    return {
+      label: '🟢 Gros tapis',
+      advice: `Ton tapis = ${ratio.toFixed(2)}× le tapis moyen : applique la pression — opens et 3-bets élargis, tu peux bully les shortstacks et payer leurs shoves un peu plus large, mais évite les gros flips sans côte claire.`,
+      factors: { raise: 1.06, threeBet: 1.07, call: endgame ? 0.92 : 0.97, allIn: endgame ? 0.95 : 1.0 },
+    };
+  }
+  if (ratio <= 0.75) {
+    return {
+      label: '🔴 Petit tapis',
+      advice: `Ton tapis = ${(ratio * 100).toFixed(0)}% du tapis moyen : survie d'abord — calls marginaux resserrés, mais bascule push/fold plus tôt (shove-first) pour ne pas être aveuglé.`,
+      factors: { raise: 0.94, call: 0.85, threeBet: 0.9, allIn: 1.04 },
+    };
+  }
+  return {
+    label: '🟡 Tapis moyen',
+    advice: `Ton tapis = ${ratio.toFixed(2)}× le tapis moyen : jeu standard selon le jour et la profondeur.${endgame ? ' Fin de tournoi : on resserre légèrement les calls marginaux.' : ''}`,
+    factors: endgame ? { call: 0.96 } : {},
+  };
+}
+
+function stackToBB(stack: TridentStack): number {
+  const n = parseInt(stack, 10);
+  return isNaN(n) ? 100 : n;
+}
+
+// Résout un tapis exact (1-200bb) vers la bande de ranges la plus proche
+function resolveTridentStack(bb: number): TridentStack {
+  if (bb >= 100) return '200bb';
+  if (bb >= 50) return '50bb';
+  if (bb >= 25) return '25bb';
+  if (bb >= 20) return '20bb';
+  if (bb >= 15) return '15bb';
+  if (bb >= 12) return '12bb';
+  if (bb >= 10) return '10bb';
+  if (bb >= 8) return '8bb';
+  return '5bb';
+}
+
+function resolveStackDepth(bb: number): StackDepth {
+  if (bb >= 100) return 'veryDeep';
+  if (bb >= 50) return 'deep';
+  if (bb >= 25) return 'mid';
+  return 'short';
+}
+
+// ---- Même logique appliquée au mode Tournoi (tous buy-ins) ----
+// Profondeur bb moyenne par bande de tapis pour la comparaison au tapis moyen du field.
+const STACK_DEPTH_MIDBB: Record<StackDepth, number> = { veryDeep: 150, deep: 75, mid: 37, short: 20 };
+
+function tournamentPressure(stack: StackDepth, avgBB: number, playersLeft: number): TridentPressure {
+  return tridentPressure(STACK_DEPTH_MIDBB[stack], avgBB, playersLeft);
+}
+
+// Resserre une grille RFI booléenne en retirant les mains ouvertes les plus faibles.
+function trimRFI(grid: boolean[][], keep: number): boolean[][] {
+  if (keep >= 1) return grid;
+  const opened: { r: number; c: number; s: number }[] = [];
+  for (let r = 0; r < 13; r++) for (let c = 0; c < 13; c++) {
+    if (grid[r][c]) opened.push({ r, c, s: handStrength(getHandLabel(r, c)) });
+  }
+  const remove = Math.floor(opened.length * (1 - keep));
+  if (remove <= 0) return grid;
+  const out = grid.map(row => [...row]);
+  [...opened].sort((a, b) => b.s - a.s).slice(0, remove).forEach(({ r, c }) => { out[r][c] = false; });
+  return out;
+}
+
+// ============================================================
+// LIB — pokerEvaluator (évaluateur 7 cartes + Monte Carlo)
+// ============================================================
+
+type Suit = 's' | 'h' | 'd' | 'c';
+type Rank = (typeof RANKS)[number];
+interface Card { rank: Rank; suit: Suit; }
+function cardKey(c: Card): string { return c.rank + c.suit; }
+
+const SUIT_SYMBOLS: Record<Suit, { symbol: string; color: string }> = {
+  s: { symbol: '♠', color: 'text-slate-100' },
+  h: { symbol: '♥', color: 'text-red-500' },
+  d: { symbol: '♦', color: 'text-blue-500' },
+  c: { symbol: '♣', color: 'text-green-500' },
+};
+
+const EVAL_RANKS = ['2','3','4','5','6','7','8','9','T','J','Q','K','A'];
+const rIdx: Record<string, number> = {};
+EVAL_RANKS.forEach((r, i) => { rIdx[r] = i; });
+
+// Détection de quinte par bitmask — rapide et sans allocation
+function straightFromMask(mask: number): number {
+  if ((mask & 0x100F) === 0x100F) return 3; // Wheel A-5-4-3-2 (bits 12,0,1,2,3)
+  for (let hi = 12; hi >= 4; hi--) {
+    const need = 0b11111 << (hi - 4);
+    if ((mask & need) === need) return hi;
+  }
+  return -1;
+}
+
+const CAT_NAMES = ['Carte Haute','Paire','Double Paire','Brelan','Quinte','Couleur','Full','Carré','Quinte Flush'];
+const POW15 = [1, 15, 225, 3375, 50625, 759375];
+const SUIT_IDX: Record<string, number> = { s: 0, h: 1, d: 2, c: 3 };
+
+// Évaluateur 5-7 cartes optimisé : tableaux plats + bitmasks, zéro Map, zéro sort
+function evaluateCards(cards: Card[]): number {
+  const rc = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const sc = [0, 0, 0, 0];
+  const sm = [0, 0, 0, 0];
+  let rankMask = 0;
+  for (let i = 0; i < cards.length; i++) {
+    const c = cards[i];
+    const r = rIdx[c.rank];
+    rc[r]++;
+    const s = SUIT_IDX[c.suit];
+    sc[s]++;
+    sm[s] |= 1 << r;
+    rankMask |= 1 << r;
+  }
+  const score = (cat: number, ranks: number[]) =>
+    cat * 1e10 + ranks.reduce((acc, r, i) => acc + r * POW15[5 - i], 0);
+
+  // Couleur / Quinte Flush
+  for (let s = 0; s < 4; s++) {
+    if (sc[s] >= 5) {
+      const sf = straightFromMask(sm[s]);
+      if (sf >= 0) return score(8, [sf]);
+      const fr: number[] = [];
+      for (let r = 12; r >= 0 && fr.length < 5; r--) if (sm[s] & (1 << r)) fr.push(r);
+      return score(5, fr);
+    }
+  }
+
+  // Comptage par catégorie (sans tri : on scanne les rangs du haut vers le bas)
+  let quad = -1, tripTop = -1, trip2 = -1, pairTop = -1, pair2 = -1, pairs = 0, trips = 0;
+  for (let r = 12; r >= 0; r--) {
+    const n = rc[r];
+    if (n === 4 && quad === -1) quad = r;
+    else if (n === 3) { if (tripTop === -1) tripTop = r; else if (trip2 === -1) trip2 = r; trips++; }
+    else if (n === 2) { pairs++; if (pairTop === -1) pairTop = r; else if (pair2 === -1) pair2 = r; }
+  }
+
+  if (quad >= 0) {
+    let kick = 0;
+    for (let r = 12; r >= 0; r--) if (r !== quad && rc[r] > 0 && rc[r] < 4) { kick = r; break; }
+    return score(7, [quad, kick]);
+  }
+  if (trips >= 2) return score(6, [tripTop, trip2]);
+  if (trips === 1 && pairs >= 1) return score(6, [tripTop, pairTop]);
+  const st = straightFromMask(rankMask);
+  if (st >= 0) return score(4, [st]);
+  if (trips === 1) {
+    const kick: number[] = [];
+    for (let r = 12; r >= 0 && kick.length < 2; r--) if (r !== tripTop && rc[r] > 0 && rc[r] < 3) kick.push(r);
+    return score(3, [tripTop, ...kick]);
+  }
+  if (pairs >= 2) {
+    let kick = 0;
+    for (let r = 12; r >= 0; r--) if (r !== pairTop && r !== pair2 && rc[r] > 0 && rc[r] < 2) { kick = r; break; }
+    return score(2, [pairTop, pair2, kick]);
+  }
+  if (pairs === 1) {
+    const kick: number[] = [];
+    for (let r = 12; r >= 0 && kick.length < 3; r--) if (r !== pairTop && rc[r] > 0 && rc[r] < 2) kick.push(r);
+    return score(1, [pairTop, ...kick]);
+  }
+  const hi: number[] = [];
+  for (let r = 12; r >= 0 && hi.length < 5; r--) if (rc[r] > 0) hi.push(r);
+  return score(0, hi);
+}
+
+function catFromScore(s: number): string {
+  return CAT_NAMES[Math.floor(s / 1e10)] || 'Carte Haute';
+}
+
+interface EquityResult { equity: number; wins: number; ties: number; losses: number; total: number; handCategory: string; outs: number; }
+
+const FULL_DECK: Card[] = [];
+RANKS.forEach(r => (['s','h','d','c'] as Suit[]).forEach(s => FULL_DECK.push({ rank: r, suit: s })));
+
+function countOuts(hero: Card[], board: Card[]): number {
+  if (hero.length < 2 || board.length < 3 || board.length >= 5) return 0;
+  const all = [...hero, ...board];
+  const suitCount = new Map<string, number>();
+  all.forEach(c => suitCount.set(c.suit, (suitCount.get(c.suit) || 0) + 1));
+  for (const [, n] of suitCount) if (n === 4) return 9; // flush draw
+  const cat = Math.floor(evaluateCards(all) / 1e10);
+  if (cat <= 1) return 6; // overcard / draw générique
+  return 0;
+}
+
+// Simulation Monte Carlo découpée en chunks — n bloque jamais l'UI.
+// Scratch réutilisée : zéro allocation par itération.
+const SCRATCH: Card[] = new Array(7);
+
+function simulateChunk(hero: Card[], board: Card[], numOpponents: number, deck: Card[], iterations: number): { wins: number; ties: number; losses: number } {
+  let wins = 0, ties = 0, losses = 0;
+  const needBoard = 5 - board.length;
+  const need = needBoard + 2 * numOpponents;
+  const pool = deck.slice(); // réutilisé entre itérations : re-mélange partiel Fisher-Yates
+  const nb = board.length;
+  for (let it = 0; it < iterations; it++) {
+    for (let k = 0; k < need; k++) {
+      const j = k + Math.floor(Math.random() * (pool.length - k));
+      const tmp = pool[k]; pool[k] = pool[j]; pool[j] = tmp;
+    }
+    // Board complet dans SCRATCH[2..6]
+    SCRATCH[0] = hero[0]; SCRATCH[1] = hero[1];
+    for (let b = 0; b < nb; b++) SCRATCH[2 + b] = board[b];
+    for (let b = 0; b < needBoard; b++) SCRATCH[2 + nb + b] = pool[b];
+    const heroScore = evaluateCards(SCRATCH);
+    let lost = false, tied = false;
+    for (let o = 0; o < numOpponents; o++) {
+      SCRATCH[0] = pool[needBoard + o * 2];
+      SCRATCH[1] = pool[needBoard + o * 2 + 1];
+      const s = evaluateCards(SCRATCH);
+      if (s > heroScore) { lost = true; break; }
+      if (s === heroScore) tied = true;
+    }
+    if (lost) losses++;
+    else if (tied) ties++;
+    else wins++;
+  }
+  return { wins, ties, losses };
+}
+
+function makeResult(hero: Card[], board: Card[], wins: number, ties: number, losses: number, total: number): EquityResult {
+  const equity = Math.round(((wins + ties / 2) / total) * 1000) / 10;
+  const heroNow = evaluateCards([...hero, ...board]);
+  return { equity, wins, ties, losses, total, handCategory: catFromScore(heroNow), outs: countOuts(hero as [Card, Card], board) };
+}
+
+// ============================================================
+// LIB — boardAnalyzer (sizing advice simplifié)
+// ============================================================
+
+type ActingPosition = 'oop' | 'ip';
+type PreflopRole = 'aggressor' | 'defender';
+interface SizingAdvice { title: string; size: string; bullets: string[]; }
+
+function getSizingAdvice(board: Card[], equity: number | null, cat: string | null, opts: { position: ActingPosition; role: PreflopRole }): SizingAdvice {
+  const ranks = board.map(c => c.rank);
+  const paired = new Set(ranks).size < board.length;
+  const suitCount = new Map<string, number>();
+  board.forEach(c => suitCount.set(c.suit, (suitCount.get(c.suit) || 0) + 1));
+  const flushy = Math.max(...Array.from(suitCount.values()));
+  const connected = new Set(ranks.map(r => rIdx[r])).size === board.length && Math.max(...ranks.map(r => rIdx[r])) - Math.min(...ranks.map(r => rIdx[r])) <= 4;
+  const wet = flushy >= 3 || connected;
+  const bullets: string[] = [];
+  if (paired) bullets.push('Board apparié — les draws sont rares, préfère un sizing de value avec tes mains fortes.');
+  if (flushy >= 3) bullets.push('Tirage couleur possible — protège avec un sizing gros (60-75% pot).');
+  if (connected) bullets.push('Board connecté — beaucoup de tirages suites, mise plus grosse pour nier l\'équité.');
+  if (!wet && !paired) bullets.push('Board sec — petites mises (25-40% pot) suffisent, fréquence élevée.');
+  if (equity !== null) {
+    if (equity >= 70) bullets.push('Équité forte : value bet gros sur 3 streets, ne slowplaye pas.');
+    else if (equity >= 45) bullets.push('Équité moyenne : mise de protection / semi-bluff selon ton plan sur les streets suivantes.');
+    else bullets.push('Équité faible : bluff seulement avec fold equity, sinon check/fold.');
+  }
+  if (opts.role === 'aggressor') bullets.push('Agresseur preflop : continue à c-bet fréquemment, surtout en position.');
+  else bullets.push('Défenseur : check-raise tes draws sur les boards favorables, sinon check-call sélectif.');
+  if (opts.position === 'oop') bullets.push('Hors de position : simplifie avec des sizings plus gros pour réduire les décisions.');
+  const size = wet ? '66-75% pot' : paired ? '50-60% pot' : '25-40% pot';
+  return { title: '💡 Conseil de sizing', size, bullets };
+}
+
+// ============================================================
+// UI — composants partagés
+// ============================================================
+
+const ACTION_STYLES: Record<Action, { bg: string; text: string }> = {
+  raise: { bg: 'bg-[#00A651]', text: 'text-white' },
+  threeBet: { bg: 'bg-amber-500', text: 'text-slate-900' },
+  call: { bg: 'bg-[#0072BC]', text: 'text-white' },
+  allIn: { bg: 'bg-rose-600', text: 'text-white' },
+  fold: { bg: 'bg-[#0E2740]', text: 'text-[#6E93B8]' },
+};
+
+// Mémoïsée : le survol met à jour le panneau latéral SANS re-render des 169 cases
+const RangeGrid = React.memo(function RangeGrid({ data, onHover, onClick }: {
+  data: CellData[][];
+  onHover?: (c: CellData | null) => void;
+  onClick?: (c: CellData) => void;
+}) {
+  return (
+    <div className="grid gap-[2px] rounded-lg overflow-hidden border border-[#123350]" style={{ gridTemplateColumns: 'repeat(13, minmax(0, 1fr))' }}>
+      {data.map((row, r) => row.map((cell, c) => (
+        <button
+          key={`${r}-${c}`}
+          onMouseEnter={() => onHover?.(cell)}
+          onClick={() => onClick?.(cell)}
+          className={`aspect-square flex items-center justify-center text-[9px] sm:text-[10px] font-bold rounded-[2px] transition-transform duration-75 will-change-transform hover:scale-110 hover:z-10 active:scale-90 relative ${ACTION_STYLES[cell.action].bg} ${ACTION_STYLES[cell.action].text}`}
+        >
+          {cell.label}
+        </button>
+      )))}
+    </div>
+  );
+});
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between text-xs py-1 border-b border-[#123350] last:border-0">
+      <span className="text-[#6E93B8]">{label}</span>
+      <span className="font-semibold text-slate-100">{value}</span>
+    </div>
+  );
+}
+
+function HandDetail({ cell }: { cell: CellData | null }) {
+  return (
+    <div className="p-4 bg-[#0A1D30] rounded-lg border border-[#123350]">
+      <p className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2">Main</p>
+      {cell ? (
+        <div className="space-y-2">
+          <div className="text-3xl font-extrabold">{cell.label}</div>
+          <Badge className={ACTION_STYLES[cell.action].bg}>{ACTION_LABELS[cell.action]}</Badge>
+          <Stat label="Combos" value={String(cell.combos)} />
+          <Stat label="% des mains" value={((cell.combos / 1326) * 100).toFixed(2) + '%'} />
+        </div>
+      ) : <p className="text-sm text-[#53749B]">Survolez la grille…</p>}
+    </div>
+  );
+}
+
+// Mémoïsée : ne re-render pas pendant les mises à jour progressives d'équité
+const FastCardGrid = React.memo(function FastCardGrid({ usedCards, onPickCard }: { usedCards: Card[]; onPickCard: (c: Card) => void }) {
+  const used = new Set(usedCards.map(cardKey));
+  return (
+    <div className="space-y-1">
+      {(['s','h','d','c'] as Suit[]).map(suit => (
+        <div key={suit} className="flex gap-1">
+          {RANKS.map(rank => {
+            const card: Card = { rank, suit };
+            const isUsed = used.has(cardKey(card));
+            return (
+              <button
+                key={cardKey(card)}
+                disabled={isUsed}
+                onClick={() => onPickCard(card)}
+                className={`flex-1 h-9 rounded text-[10px] font-black flex items-center justify-center transition-colors duration-[50ms] ${isUsed ? 'bg-[#0E2740] text-slate-700 cursor-not-allowed' : 'bg-slate-700 hover:bg-slate-600 active:scale-90 ' + SUIT_SYMBOLS[suit].color}`}
+              >
+                {rank}{SUIT_SYMBOLS[suit].symbol}
+              </button>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+});
+
+function SizingTooltip({ advice }: { advice: SizingAdvice }) {
+  return (
+    <div className="p-4 bg-[#0A1D30] rounded-lg border border-emerald-700 space-y-2">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-bold text-emerald-400">{advice.title}</h3>
+        <Badge className="bg-emerald-600">{advice.size}</Badge>
+      </div>
+      <ul className="list-disc pl-5 space-y-1 text-xs text-[#9FC0DD]">
+        {advice.bullets.map((b, i) => <li key={i}>{b}</li>)}
+      </ul>
+    </div>
+  );
+}
+
+// ============================================================
+// RtaPanel
+// ============================================================
+
+const TYPE_LABELS = { pair: 'Paire servie', suited: 'Assorties', offsuit: 'Dépareillées' } as const;
+
+function RtaPanel() {
+  const [rtaMode, setRtaMode] = useState<'tournament' | 'expresso'>('tournament');
+  const [cards, setCards] = useState<Card[]>([]);
+  const [position, setPosition] = useState<Position>('CO');
+  const [scenario, setScenario] = useState<ScenarioType>('RFI');
+  const [allInDepth, setAllInDepth] = useState<AllInDepth>('15bb');
+  const [stack, setStack] = useState<StackDepth>('deep');
+  const [phase, setPhase] = useState<TournamentPhase>('early');
+  const [buyIn, setBuyIn] = useState<BuyIn>('50');
+  const [exScenario, setExScenario] = useState<ExpressoScenario>('BTN_RFI');
+  const [exStack, setExStack] = useState<ExpressoStack>('15bb');
+
+  const pickCard = (card: Card) => {
+    setCards(prev => (prev.length >= 2 ? [card] : [...prev, card]));
+  };
+
+  const handLabel = useMemo(() => {
+    if (cards.length < 2) return null;
+    const [a, b] = cards;
+    const ia = RANKS.indexOf(a.rank as never);
+    const ib = RANKS.indexOf(b.rank as never);
+    if (ia === -1 || ib === -1) return null;
+    if (a.rank === b.rank) return `${a.rank}${b.rank}`;
+    if (a.suit === b.suit) return getHandLabel(Math.min(ia, ib), Math.max(ia, ib));
+    return getHandLabel(Math.max(ia, ib), Math.min(ia, ib));
+  }, [cards]);
+
+  const handType = useMemo(() => {
+    if (cards.length < 2) return null;
+    const [a, b] = cards;
+    if (a.rank === b.rank) return 'pair' as const;
+    return a.suit === b.suit ? ('suited' as const) : ('offsuit' as const);
+  }, [cards]);
+
+  const data = useMemo<CellData[][]>(() => {
+    if (rtaMode === 'expresso') return getExpressoRange(exScenario, exStack);
+    if (scenario !== 'RFI') return getRangeData(position, scenario, allInDepth);
+    const rfiGrid = getTournamentRFI(position, stack, phase, buyIn);
+    return RANKS.map((_, row) => RANKS.map((_, col) => {
+      const type = getHandType(row, col);
+      return { action: rfiGrid[row][col] ? 'raise' as Action : 'fold' as Action, label: getHandLabel(row, col), type, combos: getCombos(type) };
+    }));
+  }, [rtaMode, position, scenario, allInDepth, stack, phase, buyIn, exScenario, exStack]);
+
+  const cell = useMemo(() => (handLabel ? data.flat().find(c => c.label === handLabel) ?? null : null), [data, handLabel]);
+  const exScenarioDef = EXPRESSO_SCENARIOS.find(s => s.value === exScenario)!;
+
+  return (
+    <div className="space-y-5">
+      <div className="p-4 rounded-lg border border-[#123350] bg-[#0A1D30] space-y-4">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <h3 className="text-sm font-bold">⚡ RTA Éclair — Ta main</h3>
+          {cards.length > 0 && (
+            <button onClick={() => setCards([])} className="px-3 py-1 rounded-md text-xs font-bold bg-[#0E2740] hover:bg-slate-700">✕ Effacer</button>
+          )}
+        </div>
+        <div className="flex gap-3">
+          {[0, 1].map(i => {
+            const card = cards[i];
+            return (
+              <div key={i} className={`w-20 h-28 rounded-lg border-2 flex flex-col items-center justify-center font-mono ${card ? 'bg-[#0E2740] border-[#1A4260]' : 'bg-[#071523] border-dashed border-[#123350]'}`}>
+                {card ? (
+                  <>
+                    <span className="text-3xl font-bold leading-none">{card.rank}</span>
+                    <span className={`text-3xl leading-none mt-1 ${SUIT_SYMBOLS[card.suit].color}`}>
+                      {SUIT_SYMBOLS[card.suit].symbol}
+                    </span>
+                  </>
+                ) : <span className="text-xs text-slate-600">Carte {i + 1}</span>}
+              </div>
+            );
+          })}
+          <div className="flex-1 flex items-center">
+            {cell && handLabel ? (
+              <div className={`w-full rounded-lg px-4 py-3 ${ACTION_STYLES[cell.action].bg}`}>
+                <p className="text-[10px] uppercase tracking-wider opacity-80 font-bold">
+                  {handLabel} · {TYPE_LABELS[handType!]}
+                </p>
+                <p className="text-2xl font-extrabold leading-tight">{ACTION_LABELS[cell.action]}</p>
+                <p className="text-[11px] opacity-80 font-mono">{cell.combos} combos / 1326</p>
+              </div>
+            ) : (
+              <p className="text-sm text-[#53749B] italic px-2">
+                {cards.length === 1 ? 'Encore une carte…' : 'Tape tes 2 cartes ci-dessous'}
+              </p>
+            )}
+          </div>
+        </div>
+        <FastCardGrid usedCards={cards} onPickCard={pickCard} />
+      </div>
+
+      <div className="p-4 rounded-lg border border-[#123350] bg-[#0A1D30] space-y-4">
+        <h3 className="text-sm font-bold">🎯 Le spot</h3>
+        <div className="flex gap-2">
+          <button onClick={() => setRtaMode('tournament')} className={`px-4 py-2 rounded-md text-sm font-bold ${rtaMode === 'tournament' ? 'bg-emerald-600 text-white' : 'bg-[#0E2740] text-[#9FC0DD] hover:bg-slate-700'}`}>🏆 Tournoi</button>
+          <button onClick={() => setRtaMode('expresso')} className={`px-4 py-2 rounded-md text-sm font-bold ${rtaMode === 'expresso' ? 'bg-emerald-600 text-white' : 'bg-[#0E2740] text-[#9FC0DD] hover:bg-slate-700'}`}>☕ Expresso</button>
+        </div>
+
+        {rtaMode === 'tournament' ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Position</label>
+              <div className="flex flex-wrap gap-1.5">
+                {POSITIONS.map(p => (
+                  <button key={p} onClick={() => setPosition(p)} className={`px-3 py-1.5 rounded-md text-xs font-bold ${position === p ? 'bg-amber-500 text-slate-900' : 'bg-[#0E2740] text-[#9FC0DD] hover:bg-slate-700'}`}>{p}</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Situation</label>
+              <Select value={scenario} onValueChange={(v) => setScenario(v as ScenarioType)}>
+                <SelectTrigger className="h-10 bg-[#0E2740] border-[#123350]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {SCENARIOS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            {scenario === 'allIn' && (
+              <div>
+                <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Profondeur All-In</label>
+                <Select value={allInDepth} onValueChange={(v) => setAllInDepth(v as AllInDepth)}>
+                  <SelectTrigger className="h-10 bg-[#0E2740] border-[#123350]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {ALLIN_DEPTHS.map(d => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {scenario === 'RFI' && (
+              <>
+                <div>
+                  <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Tapis</label>
+                  <Select value={stack} onValueChange={(v) => setStack(v as StackDepth)}>
+                    <SelectTrigger className="h-10 bg-[#0E2740] border-[#123350]"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {STACK_DEPTHS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Phase</label>
+                  <Select value={phase} onValueChange={(v) => setPhase(v as TournamentPhase)}>
+                    <SelectTrigger className="h-10 bg-[#0E2740] border-[#123350]"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {TOURNAMENT_PHASES.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Buy-in</label>
+                  <Select value={buyIn} onValueChange={(v) => setBuyIn(v as BuyIn)}>
+                    <SelectTrigger className="h-10 bg-[#0E2740] border-[#123350]"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {BUY_INS.map(b => <SelectItem key={b.value} value={b.value}>{b.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Situation ({exScenarioDef.position})</label>
+              <Select value={exScenario} onValueChange={(v) => setExScenario(v as ExpressoScenario)}>
+                <SelectTrigger className="h-10 bg-[#0E2740] border-[#123350]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {EXPRESSO_SCENARIOS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Profondeur</label>
+              <Select value={exStack} onValueChange={(v) => setExStack(v as ExpressoStack)}>
+                <SelectTrigger className="h-10 bg-[#0E2740] border-[#123350]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {EXPRESSO_STACKS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="sm:col-span-2 text-xs text-[#6E93B8] bg-[#071523] rounded-md px-3 py-2 border border-[#123350]">
+              {exScenarioDef.description} · {getExpressoNote(exScenario, exStack)}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// ExpressoPanel
+// ============================================================
+
+function ExpressoPanel() {
+  const [scenario, setScenario] = useState<ExpressoScenario>('BTN_RFI');
+  const [stack, setStack] = useState<ExpressoStack>('25bb');
+  const [hovered, setHovered] = useState<CellData | null>(null);
+  const [selectedHand, setSelectedHand] = useState<string | null>(null);
+
+  const data = useMemo(() => getExpressoRange(scenario, stack), [scenario, stack]);
+  const note = getExpressoNote(scenario, stack);
+  const actions = getExpressoActions(scenario, stack);
+  const currentScenario = EXPRESSO_SCENARIOS.find(s => s.value === scenario)!;
+  const currentStack = EXPRESSO_STACKS.find(s => s.value === stack)!;
+
+  const counts = useMemo(() => {
+    const acc: Record<Action, number> = { raise: 0, call: 0, fold: 0, threeBet: 0, allIn: 0 };
+    data.forEach(row => row.forEach(cell => { acc[cell.action] += cell.combos; }));
+    return acc;
+  }, [data]);
+  const playedCombos = 1326 - counts.fold;
+
+  return (
+    <div className="space-y-5">
+      <div className="p-4 rounded-lg border border-[#123350] bg-[#0A1D30] space-y-4">
+        <div>
+          <h3 className="text-sm font-bold mb-1">☕ Expresso — 3 joueurs par table</h3>
+          <p className="text-xs text-[#6E93B8]">
+            Ranges GTO / Nash pour les Expresso (Spin &amp; Go) hyper-turbo à 3 joueurs : stacks de départ 25bb,
+            structure ultra-rapide et bascule rapide en push/fold. Le BTN parle en premier, puis la SB, puis la BB.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Scénario (position &amp; action)</label>
+            <Select value={scenario} onValueChange={(v) => setScenario(v as ExpressoScenario)}>
+              <SelectTrigger className="h-11 bg-[#0E2740] border-[#123350]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {EXPRESSO_SCENARIOS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Tapis effectif</label>
+            <Select value={stack} onValueChange={(v) => setStack(v as ExpressoStack)}>
+              <SelectTrigger className="h-11 bg-[#0E2740] border-[#123350]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {EXPRESSO_STACKS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <p className="text-sm text-[#6E93B8] bg-[#0E2740]/50 rounded-md px-3 py-2 border border-[#123350]">
+          {note} <span className="text-[#53749B]">· {currentScenario.description} · {currentStack.description}</span>
+        </p>
+      </div>
+
+      <div className="flex flex-col lg:flex-row gap-6">
+        <div className="flex-1 min-w-0">
+          <RangeGrid data={data} onHover={setHovered} onClick={(cell) => cell.action !== 'fold' && setSelectedHand(cell.label)} />
+          <p className="text-xs text-[#53749B] mt-2 text-center">💡 Touche une main jouÃ©e pour enchaÃ®ner sur l'analyse post-flop (flop â turn â river)</p>
+          {selectedHand && (
+            <div className="mt-4">
+              <PostFlopAnalyzer preselectedHand={selectedHand} />
+            </div>
+          )}
+        </div>
+        <div className="lg:w-72 space-y-5">
+          <HandDetail cell={hovered} />
+          <div className="p-4 bg-[#0A1D30] rounded-lg border border-[#123350] space-y-3">
+            <h3 className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider">Légende</h3>
+            {actions.map(action => {
+              const combos = counts[action];
+              const pct = ((combos / 1326) * 100).toFixed(1);
+              return (
+                <div key={action} className="flex items-center gap-3">
+                  <div className={`w-4 h-4 rounded-sm flex-shrink-0 ${ACTION_STYLES[action].bg} ${action === 'fold' ? 'opacity-60' : ''}`} />
+                  <span className="text-sm text-[#BFD4E8] font-medium flex-1">{ACTION_LABELS[action]}</span>
+                  <span className="font-mono text-xs text-[#6E93B8]">{combos} combos ({pct}%)</span>
+                </div>
+              );
+            })}
+            <div className="border-t border-[#123350] pt-3 flex justify-between">
+              <span className="text-xs text-[#6E93B8]">Mains jouées</span>
+              <span className="font-mono text-xs text-emerald-400 font-bold">
+                {playedCombos} / 1326 ({((playedCombos / 1326) * 100).toFixed(1)}%)
+              </span>
+            </div>
+          </div>
+          <div className="p-3 bg-[#0A1D30] rounded-lg border border-[#123350] text-xs text-[#6E93B8] space-y-1">
+            <p className="font-semibold text-slate-100">ℹ️ Spécificités du 3-max</p>
+            <p>Seulement 2 adversaires : les ranges sont bien plus larges qu'en 6-max. Le BTN ouvre 50-60% et le SB/BB défendent très large.</p>
+            <p>La structure hyper-turbo fait chuter les tapis : dès 10-12bb effectifs, on passe en push/fold (Nash), sans limp ni open-raise marginal.</p>
+            <p>Le multiplicateur (jackpot) augmente l'ICM : sur les gros multis, on resserre légèrement les calls all-in marginaux et on privilégie la fold equity.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// TridentPanel
+// ============================================================
+
+function TridentPanel() {
+  const [scenario, setScenario] = useState<ExpressoScenario>('BTN_RFI');
+  const [stack, setStack] = useState<TridentStack>('200bb');
+  const [day, setDay] = useState<TridentDay>('day1');
+  const [hovered, setHovered] = useState<CellData | null>(null);
+  const [playersLeft, setPlayersLeft] = useState(100);
+  const [avgBB, setAvgBB] = useState(100);
+  const [exactBB, setExactBB] = useState<number | null>(null);
+  const [selectedHand, setSelectedHand] = useState<string | null>(null);
+
+  const resolvedStack: TridentStack = exactBB !== null ? resolveTridentStack(exactBB) : stack;
+  const myBB = exactBB !== null ? exactBB : stackToBB(stack);
+  const pressure = useMemo(() => tridentPressure(myBB, avgBB, playersLeft), [myBB, avgBB, playersLeft]);
+  const data = useMemo(() => getTridentRange(scenario, resolvedStack, day, pressure.factors), [scenario, resolvedStack, day, pressure]);
+  const note = getTridentNote(scenario, resolvedStack, day);
+  const actions = useMemo(() => actionsOfDef(tridentDef(scenario, resolvedStack)), [scenario, resolvedStack]);
+  const currentScenario = EXPRESSO_SCENARIOS.find(s => s.value === scenario)!;
+  const currentStack = TRIDENT_STACKS.find(s => s.value === resolvedStack)!;
+  const currentDay = TRIDENT_DAYS.find(d => d.value === day)!;
+
+  const counts = useMemo(() => {
+    const acc: Record<Action, number> = { raise: 0, call: 0, fold: 0, threeBet: 0, allIn: 0 };
+    data.forEach(row => row.forEach(cell => { acc[cell.action] += cell.combos; }));
+    return acc;
+  }, [data]);
+  const playedCombos = 1326 - counts.fold;
+
+  return (
+    <div className="space-y-5">
+      <div className="p-4 rounded-lg border border-[#123350] bg-[#0A1D30] space-y-4">
+        <div>
+          <h3 className="text-sm font-bold mb-1">🔱 Le Trident — Tournoi 2 jours · tables 3-max</h3>
+          <p className="text-xs text-[#6E93B8]">
+            Tournoi multi-jours en dynamique 3-max (3 joueurs par table, BTN &gt; SB &gt; BB), tapis de départ 200bb
+            descendant jusqu'au push/fold (≤25bb). Ranges 3-max ajustées par la pression ICM d'un tournoi en 2 jours :
+            Jour 1 = accumulation avec survie valorisée, Jour 2 = bulle de l'argent, ICM maximal.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Jour du tournoi</label>
+            <Select value={day} onValueChange={(v) => setDay(v as TridentDay)}>
+              <SelectTrigger className="h-11 bg-[#0E2740] border-[#123350]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {TRIDENT_DAYS.map(d => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Scénario (position &amp; action)</label>
+            <Select value={scenario} onValueChange={(v) => setScenario(v as ExpressoScenario)}>
+              <SelectTrigger className="h-11 bg-[#0E2740] border-[#123350]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {EXPRESSO_SCENARIOS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Tapis effectif</label>
+            <Select value={stack} onValueChange={(v) => { setStack(v as TridentStack); setExactBB(null); }}>
+              <SelectTrigger className="h-11 bg-[#0E2740] border-[#123350]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {TRIDENT_STACKS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">🎯 Tapis exact (1-200bb)</label>
+            <input
+              type="number" min={1} max={200} value={exactBB ?? ''}
+              placeholder="vide = menu ci-dessus"
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === '') { setExactBB(null); return; }
+                const n = parseInt(v, 10);
+                if (!isNaN(n)) setExactBB(Math.max(1, Math.min(200, n)));
+              }}
+              className="h-11 w-full rounded-md bg-[#0E2740] border border-[#123350] px-3 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+            />
+            {exactBB !== null && (
+              <p className="text-xs text-emerald-400 mt-1">Range affichée : bande {currentStack.label} (la plus proche de {exactBB}bb)</p>
+            )}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
+          <div>
+            <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Joueurs restants</label>
+            <input
+              type="number" min={3} max={5000} value={playersLeft}
+              onChange={(e) => setPlayersLeft(Math.max(3, Math.min(5000, parseInt(e.target.value, 10) || 3)))}
+              className="h-11 w-full rounded-md bg-[#0E2740] border border-[#123350] px-3 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Tapis moyen (bb)</label>
+            <input
+              type="number" min={1} max={2000} value={avgBB}
+              onChange={(e) => setAvgBB(Math.max(1, Math.min(2000, parseInt(e.target.value, 10) || 1)))}
+              className="h-11 w-full rounded-md bg-[#0E2740] border border-[#123350] px-3 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+            />
+          </div>
+          <div className="col-span-2">
+            <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Position vs le field</label>
+            <div className="h-11 rounded-md bg-[#0E2740] border border-[#123350] px-3 flex items-center justify-between">
+              <span className="text-sm font-bold">{pressure.label}</span>
+              <span className="font-mono text-xs text-[#6E93B8]">
+                {myBB}bb vs {avgBB}bb · {(myBB / avgBB).toFixed(2)}×
+              </span>
+            </div>
+          </div>
+        </div>
+        <p className="text-sm text-[#6E93B8] bg-[#0E2740]/50 rounded-md px-3 py-2 border border-[#123350]">
+          {note} <span className="text-[#53749B]">· {currentScenario.description} · {currentStack.description} · {currentDay.description}</span>
+        </p>
+        <p className="text-sm text-[#9FC0DD] bg-[#0E2740]/30 rounded-md px-3 py-2 border border-[#123350]/50">
+          {pressure.advice}
+        </p>
+      </div>
+
+      <div className="flex flex-col lg:flex-row gap-6">
+        <div className="flex-1 min-w-0">
+          <RangeGrid data={data} onHover={setHovered} onClick={(cell) => cell.action !== 'fold' && setSelectedHand(cell.label)} />
+          <p className="text-xs text-[#53749B] mt-2 text-center">💡 Touche une main jouÃ©e pour enchaÃ®ner sur l'analyse post-flop (flop â turn â river)</p>
+          {selectedHand && (
+            <div className="mt-4">
+              <PostFlopAnalyzer preselectedHand={selectedHand} />
+            </div>
+          )}
+        </div>
+        <div className="lg:w-72 space-y-5">
+          <HandDetail cell={hovered} />
+          <div className="p-4 bg-[#0A1D30] rounded-lg border border-[#123350] space-y-3">
+            <h3 className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider">Légende</h3>
+            {actions.map(action => {
+              const combos = counts[action];
+              const pct = ((combos / 1326) * 100).toFixed(1);
+              return (
+                <div key={action} className="flex items-center gap-3">
+                  <div className={`w-4 h-4 rounded-sm flex-shrink-0 ${ACTION_STYLES[action].bg} ${action === 'fold' ? 'opacity-60' : ''}`} />
+                  <span className="text-sm text-[#BFD4E8] font-medium flex-1">{ACTION_LABELS[action]}</span>
+                  <span className="font-mono text-xs text-[#6E93B8]">{combos} combos ({pct}%)</span>
+                </div>
+              );
+            })}
+            <div className="border-t border-[#123350] pt-3 flex justify-between">
+              <span className="text-xs text-[#6E93B8]">Mains jouées</span>
+              <span className="font-mono text-xs text-emerald-400 font-bold">
+                {playedCombos} / 1326 ({((playedCombos / 1326) * 100).toFixed(1)}%)
+              </span>
+            </div>
+          </div>
+          <div className="p-3 bg-[#0A1D30] rounded-lg border border-[#123350] text-xs text-[#6E93B8] space-y-1">
+            <p className="font-semibold text-slate-100">ℹ️ Méthodologie du Trident</p>
+            <p>Dynamique 3-max : BTN ouvre large, SB/BB défendent très large. Base = tables GTO/Nash 3-max.</p>
+            <p><strong>Tapis profonds (50-200bb) :</strong> opens min-raise 2-2.5bb, 3-bets non all-in et vrai jeu postflop — les ranges se resserrent à mesure que la profondeur baisse.</p>
+            <p><strong>Jour 1 :</strong> ICM modéré — on retire 8-12% des mains les plus marginales de chaque couche (open, call, shove).</p>
+            <p><strong>Jour 2 :</strong> ICM maximal (bulle de l'argent) — calls marginaux -35%, shoves mixtes remplacés par fold, priorité survie.</p>
+            <p>Le rythme reste hyper-turbo : dès 10-12bb effectifs, bascule push/fold ajusté ICM.</p>
+            <p><strong>Contexte field :</strong> compares ton tapis au tapis moyen — gros tapis (≥1.3×) = pression accrue, petit tapis (≤0.75×) = survie + shove-first. Moins de 18 joueurs restants = ICM concentré, calls marginaux encore resserrés.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// ============================================================
+// CATALOGUE WINAMAX — types de tournois répertoriés sur la plateforme,
+// avec profil de variance et conseils d'ajustement de jeu.
+// ============================================================
+
+interface WinamaxTournament {
+  name: string;
+  emoji: string;
+  category: 'Sit & Go' | 'Quotidiens' | 'KO / Bounty' | 'Grands Événements' | 'Formats & Structures' | 'Live / Series' | 'Gratuits';
+  buyIn: string;
+  format: string;
+  speed: string;
+  fieldSize: string;
+  variance: 1 | 2 | 3 | 4 | 5;
+  varianceNote: string;
+  advice: string;
+  mode?: 'expresso' | 'tournament' | 'trident';
+}
+
+const WINAMAX_TOURNAMENTS: WinamaxTournament[] = [
+  // ---- SIT & GO ----
+  {
+    name: 'Expresso', emoji: '☕', category: 'Sit & Go',
+    buyIn: '0,25€ à 500€', format: '3-max · SNG', speed: 'Ultra-turbo', fieldSize: '3 joueurs',
+    variance: 5,
+    varianceNote: 'Variance maximale : la dotation (jusqu\'à 2 000 000€) est tirée au sort après l\'inscription — la majorité de l\'EV vient des rares gros jackpots.',
+    advice: 'Push/fold dès 10-12bb (Nash 3-max). Le multiplicateur augmente l\'ICM : sur les gros jackpots, resserre les calls all-in marginaux. Volume élevé obligatoire pour lisser.',
+    mode: 'expresso',
+  },
+  {
+    name: 'Le Trident', emoji: '🔱', category: 'Sit & Go',
+    buyIn: '2€ à 500€', format: '3-max · 2 jours', speed: 'Turbo (multi-jours)', fieldSize: 'Field moyen',
+    variance: 4,
+    varianceNote: 'Tables 3-max sur 2 jours : Jour 1 accumulation, Jour 2 bulle de l\'argent — l\'ICM multi-jours concentre la variance sur les spots de survie.',
+    advice: 'Ranges 3-max ajustées ICM : Jour 1 patient-sélectif, Jour 2 priorité survie. Utilise l\'onglet Trident (tapis 1-200bb, jour, joueurs restants, tapis moyen).',
+    mode: 'trident',
+  },
+  {
+    name: 'Hit & Run', emoji: '🏃', category: 'Sit & Go',
+    buyIn: '1€ à 20€', format: 'Accumulation', speed: 'Turbo', fieldSize: 'Petit field',
+    variance: 3,
+    varianceNote: 'Format accumulation : qualifie-toi en amassant des jetons — objectif un ticket, pas la victoire finale.',
+    advice: 'Objectif = franchir le seuil de qualification : joue serré près du seuil, agressif en dessous. Même logique ICM que les satellites.',
+    mode: 'tournament',
+  },
+  // ---- QUOTIDIENS ----
+  {
+    name: 'MiniRolls', emoji: '🍬', category: 'Quotidiens',
+    buyIn: '0,25€ ou 0,50€', format: '8-max', speed: 'Turbo', fieldSize: 'Gros fields récréatifs',
+    variance: 4,
+    varianceNote: 'Petit buy-in mais fields énormes et speed rapide : swings fréquents, heureusement pour quelques centimes.',
+    advice: 'Parfait pour débuter la bankroll : pousse tôt, la structure turbo ne récompense pas la finesse. Volume = tout.',
+    mode: 'tournament',
+  },
+  {
+    name: 'La Fièvre (Kool Shen)', emoji: '🔥', category: 'Quotidiens',
+    buyIn: '5€ à 50€', format: '8-max', speed: 'Turbo', fieldSize: '300 – 1 500 joueurs',
+    variance: 4,
+    varianceNote: 'Turbo quotidien à 20h, field récréatif large : variance de speed élevée mais rendement moyen très bon.',
+    advice: 'Bascule push/fold tôt (dès 15-20bb). Le field loose permet d\'élargir les calls all-in face aux tapis récréatifs.',
+    mode: 'tournament',
+  },
+  {
+    name: 'Le Henni Show (Momo)', emoji: '🎤', category: 'Quotidiens',
+    buyIn: '5€ à 20€', format: '8-max', speed: 'Turbo', fieldSize: '300 – 800 joueurs',
+    variance: 4,
+    varianceNote: 'Tournoi personnalisé quotidien : ambiance loose, mais la speed turbo garde une variance élevée.',
+    advice: 'Fields très récréatifs : value-bet large, élargis les calls. La patiente en early game paie sur ces fields.',
+    mode: 'tournament',
+  },
+  {
+    name: 'Les Loulous (Moundir)', emoji: '😂', category: 'Quotidiens',
+    buyIn: '5€ à 20€', format: '8-max', speed: 'Turbo', fieldSize: '300 – 800 joueurs',
+    variance: 4,
+    varianceNote: 'Tournoi personnalisé à 21h30 : field récréatif, structure rapide.',
+    advice: 'Repère les joueurs qui font tapis toutes les mains : attends une bonne main et paie large contre eux.',
+    mode: 'tournament',
+  },
+  {
+    name: 'Le Tournoi After Foot', emoji: '⚽', category: 'Quotidiens',
+    buyIn: '10€ à 50€', format: '8-max', speed: 'Turbo', fieldSize: '500 – 1 500 joueurs',
+    variance: 4,
+    varianceNote: 'Tournoi à 22h45 avec Riolo et Brisbois : fields de fans de foot très loose, variance de speed classique des turbos.',
+    advice: 'Heure tardive = fatigue des adversaires : exploits de jeu loose larges à prévoir, value range élargie.',
+    mode: 'tournament',
+  },
+  {
+    name: 'Planète Pok (Fred)', emoji: '🪐', category: 'Quotidiens',
+    buyIn: '5€ à 20€', format: 'Classico · 8-max', speed: 'Turbo', fieldSize: '300 – 1 000 joueurs',
+    variance: 4,
+    varianceNote: 'Le Classico version poker à 20h : ambiance Paris/Marseille, fields récréatifs.',
+    advice: 'Field loyauté > technique : joue agressif en position et paie les shoves plus large contre les récréatifs.',
+    mode: 'tournament',
+  },
+  {
+    name: 'Le HighRoller', emoji: '💎', category: 'Quotidiens',
+    buyIn: '300€ (qualifs dès 10€)', format: '8-max', speed: 'Deep lent', fieldSize: '100 – 300 joueurs',
+    variance: 4,
+    varianceNote: 'Buy-in très lourd (300€, 18 000€ garantis) mais field restreint de réguliers : variance en € élevée, en buy-ins plus contenue. Les qualifs à 10€ réduisent la variance d\'entrée.',
+    advice: 'Niveau très relevé : ranges quasi GTO, peu d\'exploit. Qualifie-toi par satellite (10€) : le ticket vaut 250€, EV d\'entrée imbattable.',
+    mode: 'tournament',
+  },
+  // ---- KO / BOUNTY ----
+  {
+    name: 'Tournois Knockout (KO)', emoji: '💥', category: 'KO / Bounty',
+    buyIn: '1€ à 500€', format: '6-max / 8-max', speed: 'Variable', fieldSize: '200 – 2 000 joueurs',
+    variance: 3,
+    varianceNote: 'La prime (50% du buy-in sur chaque tête) est encaissée immédiatement : les gains arrivent en continu, la variance est nettement réduite.',
+    advice: 'Paye plus large les all-in quand tu couvres la prime. L\'ICM classique est atténué : joue plus proche du chip-EV en début de tournoi.',
+    mode: 'tournament',
+  },
+  {
+    name: 'KO Progressif / Space KO', emoji: '🚀', category: 'KO / Bounty',
+    buyIn: '2€ à 100€', format: '6-max / 8-max', speed: 'Turbo', fieldSize: '500 – 3 000 joueurs',
+    variance: 3,
+    varianceNote: 'Les primes doublent à chaque élimination (Space KO : primes aléatoires dès le début) — la part bounty domine en fin de tournoi.',
+    advice: 'Deviens très agressif sur les tapis moyens quand tu couvres un joueur à grosse prime. En late game, le bounty compense la bulle ICM.',
+    mode: 'tournament',
+  },
+  {
+    name: 'Mystery KO', emoji: '🎁', category: 'KO / Bounty',
+    buyIn: '5€ à 100€', format: '8-max', speed: 'Turbo', fieldSize: '500 – 2 000 joueurs',
+    variance: 3,
+    varianceNote: 'Primes mystère aléatoires : tu découvres la valeur de la prime en éliminant. Un lotto bounty qui lisse quand même les gains.',
+    advice: 'La prime moyenne est connue : joue comme un KO progressif, mais méfiance — certaines primes valent des dizaines de buy-ins.',
+    mode: 'tournament',
+  },
+  {
+    name: 'Kill The Pros / Champions / Local Heroes', emoji: '🎯', category: 'KO / Bounty',
+    buyIn: '5€ · 15 000€ garantis (7 500€ Local Heroes)', format: '8-max', speed: 'Turbo', fieldSize: '300 – 1 500 joueurs',
+    variance: 3,
+    varianceNote: 'Chaque mois à 5€ : les têtes affichées (pros Team Winamax, sportifs, Local Heroes) rapportent des primes bonus en plus du KO classique — garanti ajouté au prize pool.',
+    advice: 'Repère les joueurs à prime : un call all-in marginal devient rentable si la prime couvre le risque. Aucune prime sur toi = liberté de shove.',
+    mode: 'tournament',
+  },
+  {
+    name: 'Tournoi MAD MAX', emoji: '🌪️', category: 'KO / Bounty',
+    buyIn: '2€ · 10 000€ garantis', format: '8-max · dimanche', speed: 'Turbo', fieldSize: '1 000 – 3 000 joueurs',
+    variance: 4,
+    varianceNote: 'Le tournoi qui rend fou : 2€ seulement le dimanche, mais bataille générale sur un gros field — variance élevée pour un micro-buy-in.',
+    advice: '2€ = zéro pression bankroll : joue agressif dès le début. Le gros field récompense l\'accumulation rapide : élargis les opens en early game.',
+    mode: 'tournament',
+  },
+  {
+    name: 'Série X (XTRA / XTASE / XPERT / XTREM)', emoji: '❌', category: 'Quotidiens',
+    buyIn: 'XTRA 10€ · XTASE/XPERT/XTREM 100€', format: 'XTRA 9-max · XTASE/XTREM 6-max · XPERT 9-max', speed: 'Deepstack', fieldSize: '200 – 1 500 joueurs',
+    variance: 3,
+    varianceNote: 'La série des grands classiques : structures deepstack (10-20 000 jetons) — le skill domine, variance contenue pour des MTT. XTREM : 40 000€ garantis chaque dimanche.',
+    advice: 'Structures profondes : jeu postflop complet, ranges deep de l\'app (100bb+). Le XTRA à 10€ est le meilleur rapport qualité/prix pour progresser en deepstack.',
+    mode: 'tournament',
+  },
+  {
+    name: 'Mini Sunday', emoji: '🍼', category: 'Quotidiens',
+    buyIn: '10% du prix des gros tournois (1€ à 25€)', format: 'Copies mini des gros tournois', speed: 'Variable', fieldSize: 'Gros fields',
+    variance: 4,
+    varianceNote: 'Les plus gros tournois Winamax déclinés à un dixième du prix : mêmes fields énormes, buy-in divisé par 10 — variance ramenée à ta bankroll.',
+    advice: 'La porte d\'entrée des gros garantis pour petite bankroll : Mini Grand Tournament, Mini High Roller, etc. Mêmes conseils que leurs grands frères.',
+    mode: 'tournament',
+  },
+  {
+    name: 'Omaha Beach / Royal Omaha', emoji: '🌊', category: 'Formats & Structures',
+    buyIn: 'Omaha Beach 20€ · Royal Omaha 100€', format: '9-max (Beach) / 6-max (Royal) · PLO', speed: 'Turbo · niveaux 10 min', fieldSize: '100 – 500 joueurs',
+    variance: 5,
+    varianceNote: 'PLO avec tapis courts (3 000 jetons) et niveaux 10 minutes : variance intrinsèque de l\'Omaha + variance de speed = extrême.',
+    advice: 'Bankroll 2× plus grosse qu\'en Hold\'em. Tapis courts = réduis le limping, joue pour entasser les jetons avec des mains à fort potentiel.',
+    mode: undefined,
+  },
+  {
+    name: 'Le KING 5', emoji: '👑', category: 'Gratuits',
+    buyIn: 'Gratuit · 200 000€ de gains', format: 'Championnat par équipes de 5', speed: '5 tournois chaque soir', fieldSize: 'Équipes',
+    variance: 2,
+    varianceNote: 'Championnat de poker français par équipe : un tournoi différent par joueur chaque soir, cumul de points — la structure de championnat lisse la variance.',
+    advice: 'La régularité paie plus que le coup d\'éclat : vise l\'accumulation de points chaque soir plutôt que la victoire d\'un soir.',
+    mode: 'tournament',
+  },
+  {
+    name: 'Le FPT (Championnat de France)', emoji: '🇫🇷', category: 'Live / Series',
+    buyIn: 'Qualifs gratuites · 1 000 000€ à la clé', format: 'Étapes live dans ~15 villes', speed: 'Deep, lent', fieldSize: '300 – 1 000 joueurs',
+    variance: 3,
+    varianceNote: 'LE championnat de France de poker : qualification gratuite en ligne, étapes live, 1 000 000€ pour la finale à Paris — variance d\'entrée nulle, gain potentiel énorme.',
+    advice: 'Le meilleur EV gratuit du site : qualifie-toi sur les freerolls. En live, structures lentes = ton avantage technique s\'exprime pleinement.',
+    mode: 'tournament',
+  },
+  {
+    name: 'La Ligue Winamax', emoji: '⚽', category: 'Live / Series',
+    buyIn: '5 divisions · 5 buy-ins différents', format: 'Championnat par divisions', speed: 'Saison', fieldSize: 'Divisions',
+    variance: 2,
+    varianceNote: '5 divisions avec promotion/relégation façon Ligue des champions : le format championnat sur une saison lisse la variance.',
+    advice: 'Jeu de régularité : chaque place compte pour la montée. Le rythme de saison récompense la constance plutôt que la variance.',
+    mode: 'tournament',
+  },
+  {
+    name: 'Tournois PSG / ASSE / Cinéma', emoji: '🎬', category: 'Quotidiens',
+    buyIn: '1€ à 20€', format: '8-max', speed: 'Turbo', fieldSize: '300 – 1 500 joueurs',
+    variance: 4,
+    varianceNote: 'Tournois partenaires (PSG, ASSE) et Cinéma : primes en places VIP/avant-premières — fields récréatifs, variance de speed classique.',
+    advice: 'Lots annexes (places de match, avant-premières) : la victoire vaut double. Fields très récréatifs : valuebet large.',
+    mode: 'tournament',
+    mode: 'tournament',
+  },
+  // ---- GRANDS ÉVÉNEMENTS ----
+  {
+    name: 'Sunday Surprise', emoji: '🌟', category: 'Grands Événements',
+    buyIn: '10€ · 50 000€ garantis + cadeau (qualifs dès 1€)', format: '8-max · 20h30', speed: 'Deepstack lent', fieldSize: '1 000 – 5 000 joueurs',
+    variance: 5,
+    varianceNote: 'Le rendez-vous dominical à 10€ : gros field + dotation garantie + cadeau exceptionnel au vainqueur — variance forte pour un buy-in modique.',
+    advice: 'Structure lente = jeu postflop premium et patience. Les décisions deep valent cher : analyse post-flop avant tout gros call.',
+    mode: 'tournament',
+  },
+  {
+    name: 'Le Main Event', emoji: '🥇', category: 'Grands Événements',
+    buyIn: '100€ (qualifs dès 1€)', format: '8-max', speed: 'Deep lent', fieldSize: '500 – 2 000 joueurs',
+    variance: 5,
+    varianceNote: '100 000€ garantis minimum : le nec plus ultra quotidien de Winamax. Grosse variance, gros gains potentiels.',
+    advice: 'Structures très profondes : jeu de position et d\'agressivité sur 50-100bb+. Qualifie-toi par satellite : 1€ → ticket 100€.',
+    mode: 'tournament',
+  },
+  {
+    name: 'Winamax Series', emoji: '🎪', category: 'Grands Événements',
+    buyIn: '5€ à 1 000€', format: '6-max / 8-max', speed: 'Variable', fieldSize: '2 000 – 10 000 joueurs',
+    variance: 5,
+    varianceNote: 'Festival périodique : les fields explosent (Main Event à 10 000+ joueurs) — variance maximale de la plateforme.',
+    advice: 'Bankroll dédiée : petite fraction de ta roll sur les gros buy-ins. Qualifie-toi par les nombreux satellites Series.',
+    mode: 'tournament',
+  },
+  {
+    name: 'Le Grand Tournament', emoji: '👑', category: 'Grands Événements',
+    buyIn: '1 000€ (qualifs dès 5€)', format: '8-max', speed: 'Very deep, lent', fieldSize: '300 – 800 joueurs',
+    variance: 4,
+    varianceNote: 'Buy-in lourd, field restreint et relevé : variance en € très grande, en buy-ins plus contenue que les méga-fields.',
+    advice: 'Jeu deep des dizaines de niveaux : ranges quasi cash, agressivité positionnelle sur 100-200bb. Qualifs imbattables EV-wise.',
+    mode: 'tournament',
+  },
+  // ---- FORMATS & STRUCTURES ----
+  {
+    name: 'Tournois Deepstack', emoji: '🐢', category: 'Formats & Structures',
+    buyIn: '1€ à 250€', format: '6-max / 8-max / 9-max', speed: 'Très lent', fieldSize: '100 – 1 000 joueurs',
+    variance: 3,
+    varianceNote: 'Structure profonde dès le départ : le skill domine, la variance est la plus faible des MTT classiques.',
+    advice: 'Ton avantage technique s\'exprime pleinement : jeu postflop, 3-bets non all-in, c-bet boards. Ranges deep de l\'app (100-200bb).',
+    mode: 'tournament',
+  },
+  {
+    name: 'Monster Stack', emoji: '👾', category: 'Formats & Structures',
+    buyIn: '5€ à 100€', format: '8-max', speed: 'Lent', fieldSize: '500 – 2 000 joueurs',
+    variance: 3,
+    varianceNote: '100 000 jetons de départ : deep toute la partie — variance contenue, décisions postflop nombreuses.',
+    advice: 'Comme un deepstack : patience en early, agressivité mid/late. Le tapis profond punit les bluffs mal sizés — value-only en early game.',
+    mode: 'tournament',
+  },
+  {
+    name: 'Tournois Rebuy', emoji: '♻️', category: 'Formats & Structures',
+    buyIn: '1€ à 50€ (+ rebuys)', format: '6-max / 8-max', speed: 'Variable', fieldSize: '300 – 1 500 joueurs',
+    variance: 5,
+    varianceNote: 'La période de rebuys illimités gonfle le prize pool ET la variance : les fields font tapis tous les deux mains en période de rebuy.',
+    advice: 'Budget 3-5 buy-ins avant de commencer. En période rebuy : joue gros pots avec des mains fortes ; après l\'add-on, reviens à un jeu normal.',
+    mode: 'tournament',
+  },
+  {
+    name: 'Tournois Omaha (PLO)', emoji: '🃏', category: 'Formats & Structures',
+    buyIn: '1€ à 100€', format: '6-max · PLO/PLO8', speed: 'Variable', fieldSize: '100 – 500 joueurs',
+    variance: 5,
+    varianceNote: 'L\'Omaha a une variance intrinsèque bien supérieure au Hold\'em : les équités preflop sont toujours serrées (60/40 max contre 90/10).',
+    advice: 'Bankroll 2× plus grosse qu\'en Hold\'em pour le même buy-in. Ne paye jamais les tapis sans la nuts ou un wrap+draw fort.',
+    mode: undefined,
+  },
+  {
+    name: 'Big & Mini Switch', emoji: '🔀', category: 'Formats & Structures',
+    buyIn: '5€ à 50€', format: '2 tournois · format changeant', speed: 'Variable', fieldSize: '200 – 800 joueurs',
+    variance: 4,
+    varianceNote: 'Format différent chaque soir : nouveauté = adaptation — la variance vient des structures changeantes.',
+    advice: 'Vérifie le format du jour avant de t\'inscrire. Sur les formats exotiques, les fields sont moins rodés : ton avantage d\'expérience paie.',
+    mode: 'tournament',
+  },
+  // ---- LIVE / SERIES ----
+  {
+    name: 'Winamax Poker Tour (live)', emoji: '🗺️', category: 'Live / Series',
+    buyIn: 'Qualifs 2€ à 50€', format: 'Live · étapes françaises', speed: 'Deep, lent', fieldSize: '300 – 1 000 joueurs',
+    variance: 3,
+    varianceNote: 'Qualification en ligne pas chère, structure live lente : variance d\'entrée faible, ROI très élevé pour les joueurs solides.',
+    advice: 'Cible les satellites : un ticket live obtenu pour 10€ réduit drastiquement la variance. Le meilleur rapport skill/rendement du site.',
+    mode: 'tournament',
+  },
+  {
+    name: 'Satellites / Qualificatifs', emoji: '🛰️', category: 'Live / Series',
+    buyIn: '1€ à 100€', format: 'Variable', speed: 'Turbo fréquent', fieldSize: '50 – 1 000 joueurs',
+    variance: 2,
+    varianceNote: 'Objectif = un ticket, pas la victoire : l\'ICM des places à gagner impose un jeu très serré en bulle. La variance la plus faible des MTT.',
+    advice: 'En bulle de satellite, NE JOUE PAS pour gagner : fold même AK si tu couvres les shortstacks — chaque place payée a la même valeur.',
+    mode: 'tournament',
+  },
+  {
+    name: 'Tournois Privés', emoji: '🔒', category: 'Live / Series',
+    buyIn: 'Gratuit à 100€', format: 'Choisi par l\'organisateur', speed: 'Variable', fieldSize: '10 – 200 joueurs',
+    variance: 2,
+    varianceNote: 'Fields restreints entre amis/communauté : variance réduite, et tu connais souvent tes adversaires.',
+    advice: 'L\'exploit pur : notes sur chaque joueur, ranges construites sur l\'historique. Utilise Coach IA pour revoir tes mains après coup.',
+    mode: 'tournament',
+  },
+  // ---- GRATUITS ----
+  {
+    name: 'Freerolls', emoji: '🎰', category: 'Gratuits',
+    buyIn: 'Gratuit', format: '6-max / 8-max', speed: 'Ultra-turbo', fieldSize: '2 000 – 15 000 joueurs',
+    variance: 5,
+    varianceNote: 'Fields énormes et blindes rapides : variance de loterie, mais zéro risque financier.',
+    advice: 'Pousse tôt et souvent : la structure ne récompense pas la finesse. Doubler vite ou mourir — la survie passive ne paie pas.',
+    mode: 'tournament',
+  },
+];
+
+const WINAMAX_CATEGORIES = ['Sit & Go', 'Quotidiens', 'KO / Bounty', 'Grands Événements', 'Formats & Structures', 'Live / Series', 'Gratuits'] as const;
+function VarianceBadge({ level }: { level: number }) {
+  const color = level >= 5 ? 'bg-rose-600' : level === 4 ? 'bg-orange-500' : level === 3 ? 'bg-amber-500' : level === 2 ? 'bg-emerald-600' : 'bg-emerald-500';
+  const label = level === 5 ? 'Extrême' : level === 4 ? 'Élevée' : level === 3 ? 'Moyenne' : level === 2 ? 'Faible' : 'Très faible';
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${color} text-white`}>
+      {'▮'.repeat(level)}{'▯'.repeat(5 - level)} Variance {label}
+    </span>
+  );
+}
+
+function WinamaxCatalogPanel() {
+  const [filter, setFilter] = useState<string>('Tous');
+  const [open, setOpen] = useState<string | null>(null);
+  const list = filter === 'Tous' ? WINAMAX_TOURNAMENTS : WINAMAX_TOURNAMENTS.filter(t => t.category === filter);
+  return (
+    <div className="space-y-4">
+      <div className="p-4 rounded-lg border border-[#123350] bg-[#0A1D30]">
+        <h2 className="text-sm font-bold mb-1">🎰 Tournois Winamax — Catalogue & Variance</h2>
+        <p className="text-xs text-[#6E93B8]">
+          Tous les types de tournois de la plateforme avec leur profil de variance et comment ajuster ton jeu.
+          La variance mesure l'amplitude des swings de ta bankroll sur ce format (1 = très faible, 5 = extrême).
+        </p>
+        <div className="flex flex-wrap gap-2 mt-3">
+          {['Tous', ...WINAMAX_CATEGORIES].map(c => (
+            <button key={c} onClick={() => setFilter(c)}
+              className={`px-3 py-1.5 rounded-md text-xs font-bold ${filter === c ? 'bg-emerald-600 text-white' : 'bg-[#0E2740] text-[#9FC0DD] hover:bg-slate-700'}`}>
+              {c}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {list.map(t => (
+          <div key={t.name} className="rounded-lg border border-[#123350] bg-[#0A1D30] overflow-hidden">
+            <button className="w-full text-left p-4 flex items-start gap-3" onClick={() => setOpen(open === t.name ? null : t.name)}>
+              <span className="text-2xl">{t.emoji}</span>
+              <span className="flex-1 min-w-0">
+                <span className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-bold">{t.name}</span>
+                  <span className="text-[10px] text-[#53749B] uppercase tracking-wider flex-shrink-0">{t.category}</span>
+                </span>
+                <span className="block text-xs text-[#6E93B8] mt-0.5">{t.format} · {t.speed} · {t.fieldSize} · {t.buyIn}</span>
+                <span className="mt-2 inline-block"><VarianceBadge level={t.variance} /></span>
+              </span>
+              <span className="text-[#53749B] text-xs">{open === t.name ? '▲' : '▼'}</span>
+            </button>
+            {open === t.name && (
+              <div className="px-4 pb-4 pt-1 space-y-2 border-t border-[#123350]">
+                <p className="text-xs text-[#6E93B8]"><strong className="text-[#BFD4E8]">Variance :</strong> {t.varianceNote}</p>
+                <p className="text-xs text-[#6E93B8]"><strong className="text-[#BFD4E8]">Comment jouer :</strong> {t.advice}</p>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+// ============================================================
+
+function CardSlot({ card, onRemove, active, separator }: { card?: Card; onRemove: (c: Card) => void; active?: boolean; separator?: boolean }) {
+  if (!card) {
+    return (
+      <div className={`w-9 h-12 rounded-md border-2 border-dashed flex items-center justify-center ${separator ? 'ml-1.5' : ''} ${active ? 'border-emerald-500 bg-emerald-500/10' : 'border-[#123350] bg-[#0E2740]/40'}`}>
+        <span className="text-[#53749B] text-sm">?</span>
+      </div>
+    );
+  }
+  const d = SUIT_SYMBOLS[card.suit];
+  return (
+    <button type="button" onClick={() => onRemove(card)} title="Retirer"
+      className={`w-9 h-12 rounded-md border-2 border-emerald-600 bg-[#0E2740] flex flex-col items-center justify-center hover:border-rose-500 active:scale-95 transition-all ${separator ? 'ml-1.5' : ''}`}>
+      <span className={`text-sm font-black leading-none ${d.color}`}>{card.rank}</span>
+      <span className={`text-base leading-none ${d.color}`}>{d.symbol}</span>
+    </button>
+  );
+}
+
+function handToCards(hand: string): Card[] {
+  if (!hand || hand.length < 2) return [];
+  const r1 = hand[0] as Rank, r2 = hand[1] as Rank;
+  if (hand.length === 2) return [{ rank: r1, suit: 's' }, { rank: r2, suit: 'h' }];
+  if (hand[2] === 's') return [{ rank: r1, suit: 's' }, { rank: r2, suit: 's' }];
+  return [{ rank: r1, suit: 's' }, { rank: r2, suit: 'h' }];
+}
+
+function PostFlopAnalyzer({ preselectedHand }: { preselectedHand?: string }) {
+  const [heroCards, setHeroCards] = useState<Card[]>(() => preselectedHand ? handToCards(preselectedHand) : []);
+  const [boardCards, setBoardCards] = useState<Card[]>([]);
+  const prevHand = useRef(preselectedHand);
+  const [numOpponents, setNumOpponents] = useState(1);
+  const [actingPosition, setActingPosition] = useState<ActingPosition>('oop');
+  const [preflopRole, setPreflopRole] = useState<PreflopRole>('aggressor');
+  const [result, setResult] = useState<EquityResult | null>(null);
+  const [isCalculating, setIsCalculating] = useState(false);
+  const [target, setTarget] = useState<'hero' | 'board'>(heroCards.length < 2 ? 'hero' : 'board');
+
+  useEffect(() => {
+    if (preselectedHand && preselectedHand !== prevHand.current) {
+      setHeroCards(handToCards(preselectedHand));
+      setResult(null);
+      prevHand.current = preselectedHand;
+    }
+  }, [preselectedHand]);
+
+  const allUsedCards = useMemo(() => [...heroCards, ...boardCards], [heroCards, boardCards]);
+
+  const sizingAdvice = useMemo<SizingAdvice | null>(() => {
+    if (boardCards.length < 3) return null;
+    return getSizingAdvice(boardCards, result?.equity ?? null, result?.handCategory ?? null, { position: actingPosition, role: preflopRole });
+  }, [boardCards, result, actingPosition, preflopRole]);
+
+  const toggleHeroCard = useCallback((card: Card) => {
+    setHeroCards(prev => {
+      const key = cardKey(card);
+      if (prev.find(c => cardKey(c) === key)) return prev.filter(c => cardKey(c) !== key);
+      if (prev.length >= 2) return prev;
+      return [...prev, card];
+    });
+    setResult(null);
+  }, []);
+  const toggleBoardCard = useCallback((card: Card) => {
+    setBoardCards(prev => {
+      const key = cardKey(card);
+      if (prev.find(c => cardKey(c) === key)) return prev.filter(c => cardKey(c) !== key);
+      if (prev.length >= 5) return prev;
+      return [...prev, card];
+    });
+    setResult(null);
+  }, []);
+
+  const handlePick = useCallback((card: Card) => {
+    if (target === 'hero') {
+      if (heroCards.length < 2) {
+        toggleHeroCard(card);
+        if (heroCards.length === 1) setTarget('board');
+        return;
+      }
+      setTarget('board');
+    }
+    if (boardCards.length < 5) toggleBoardCard(card);
+  }, [target, heroCards.length, boardCards.length, toggleHeroCard, toggleBoardCard]);
+
+  const canCalculate = heroCards.length === 2 && boardCards.length >= 3;
+
+  // Calcul progressif : l'équité s'affiche DÈS le premier chunk (~30ms),
+  // puis s'affine. Un token annule tout calcul obsolète quand tu changes une carte.
+  const calcTokenRef = useRef(0);
+
+  const runCalc = () => {
+    if (!canCalculate) return;
+    const token = ++calcTokenRef.current;
+    const hero = heroCards.slice();
+    const board = boardCards.slice();
+    const used = new Set([...hero, ...board].map(cardKey));
+    const deck = FULL_DECK.filter(c => !used.has(cardKey(c)));
+    const TOTAL = 3000, CHUNK = 300;
+    let done = 0, wins = 0, ties = 0, losses = 0;
+    setIsCalculating(true);
+    const step = () => {
+      if (calcTokenRef.current !== token) return; // calcul annulé (carte changée)
+      const r = simulateChunk(hero, board, numOpponents, deck, CHUNK);
+      wins += r.wins; ties += r.ties; losses += r.losses; done += CHUNK;
+      setResult(makeResult(hero, board, wins, ties, losses, done));
+      if (done < TOTAL) setTimeout(step, 0);
+      else setIsCalculating(false);
+    };
+    step();
+  };
+
+  useEffect(() => {
+    if (!canCalculate) return;
+    const t = setTimeout(() => runCalc(), 50);
+    return () => clearTimeout(t);
+  }, [heroCards, boardCards, numOpponents, canCalculate]);
+
+  const handleReset = () => {
+    calcTokenRef.current++; // stoppe tout calcul en cours
+    setIsCalculating(false);
+    setHeroCards([]); setBoardCards([]); setResult(null); setTarget('hero');
+  };
+
+  const equityColor = (eq: number) => {
+    if (eq >= 65) return 'text-green-500';
+    if (eq >= 45) return 'text-yellow-500';
+    if (eq >= 25) return 'text-orange-500';
+    return 'text-red-500';
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-bold">📊 Analyse Post-Flop</h2>
+          <p className="text-xs text-[#6E93B8]">
+            {preselectedHand ? `Main présélectionnée : ${preselectedHand}` : 'Sélectionne ta main puis le board'}
+          </p>
+        </div>
+        <button onClick={handleReset} className="text-xs px-3 py-1.5 rounded-md bg-[#0E2740] hover:bg-slate-700 transition-colors">Réinitialiser</button>
+      </div>
+
+      <div className="flex flex-wrap items-end gap-4">
+        <div>
+          <span className="text-[10px] font-semibold text-[#6E93B8] uppercase tracking-wider block mb-1">🃏 Ta main</span>
+          <div className="flex gap-1.5">
+            {[0, 1].map(i => (
+              <CardSlot key={i} card={heroCards[i]} onRemove={toggleHeroCard} active={target === 'hero' && heroCards.length === i} />
+            ))}
+          </div>
+        </div>
+        <div>
+          <span className="text-[10px] font-semibold text-[#6E93B8] uppercase tracking-wider block mb-1">🂠 Board</span>
+          <div className="flex gap-1.5">
+            {[0, 1, 2, 3, 4].map(i => (
+              <CardSlot key={i} card={boardCards[i]} onRemove={toggleBoardCard} active={target === 'board' && boardCards.length === i} separator={i === 3 || i === 4} />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-semibold text-[#6E93B8] uppercase tracking-wider">Saisie</span>
+        {(['hero', 'board'] as const).map(t => (
+          <button key={t} onClick={() => setTarget(t)} className={`px-3 py-1 rounded-md text-xs font-bold ${target === t ? 'bg-emerald-600 text-white' : 'bg-[#0E2740] text-[#9FC0DD] hover:bg-slate-700'}`}>
+            {t === 'hero' ? 'Main' : 'Board'}
+          </button>
+        ))}
+        <span className="text-[10px] text-[#53749B] ml-1">1 tape = 1 carte · bascule auto</span>
+      </div>
+
+      <FastCardGrid usedCards={allUsedCards} onPickCard={handlePick} />
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <span className="text-[10px] font-semibold text-[#6E93B8] uppercase tracking-wider block mb-1.5">🗣️ Qui parle en premier ?</span>
+          <div className="flex gap-1.5">
+            {([{ v: 'oop', l: 'Moi (hors de position)' }, { v: 'ip', l: "L'adversaire (je suis IP)" }] as { v: ActingPosition; l: string }[]).map(o => (
+              <button key={o.v} onClick={() => setActingPosition(o.v)} className={`flex-1 px-2 py-2 rounded-md text-[11px] font-bold ${actingPosition === o.v ? 'bg-emerald-600 text-white' : 'bg-[#0E2740] text-[#9FC0DD] hover:bg-slate-700'}`}>{o.l}</button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <span className="text-[10px] font-semibold text-[#6E93B8] uppercase tracking-wider block mb-1.5">♟️ Mon action preflop</span>
+          <div className="flex gap-1.5">
+            {([{ v: 'aggressor', l: "J'ai relancé (agresseur)" }, { v: 'defender', l: "J'ai payé / défendu" }] as { v: PreflopRole; l: string }[]).map(o => (
+              <button key={o.v} onClick={() => setPreflopRole(o.v)} className={`flex-1 px-2 py-2 rounded-md text-[11px] font-bold ${preflopRole === o.v ? 'bg-emerald-600 text-white' : 'bg-[#0E2740] text-[#9FC0DD] hover:bg-slate-700'}`}>{o.l}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {sizingAdvice && <SizingTooltip advice={sizingAdvice} />}
+
+      <div>
+        <span className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider block mb-2">👥 Nombre d'adversaires</span>
+        <div className="flex gap-1.5">
+          {[1, 2, 3, 4, 5].map(n => (
+            <button key={n} onClick={() => { setNumOpponents(n); setResult(null); }} className={`w-10 h-10 rounded-md text-sm font-bold ${numOpponents === n ? 'bg-emerald-600 text-white' : 'bg-[#0E2740] text-[#9FC0DD] hover:bg-slate-700'}`}>{n}</button>
+          ))}
+        </div>
+      </div>
+
+      {result && (
+        <div className="bg-[#0A1D30] border border-[#123350] rounded-lg p-4 space-y-3">
+          <div className="text-center">
+            <div className={`text-4xl font-black ${equityColor(result.equity)}`}>{result.equity}%</div>
+            <p className="text-xs text-[#6E93B8] mt-1">
+              Équité contre {numOpponents} adversaire{numOpponents > 1 ? 's' : ''} aléatoire{numOpponents > 1 ? 's' : ''}
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="bg-[#0E2740] rounded-md p-2">
+              <div className="text-sm font-bold text-green-500">{result.wins}</div>
+              <div className="text-[10px] text-[#6E93B8]">Victoires</div>
+            </div>
+            <div className="bg-[#0E2740] rounded-md p-2">
+              <div className="text-sm font-bold text-yellow-500">{result.ties}</div>
+              <div className="text-[10px] text-[#6E93B8]">Égalités</div>
+            </div>
+            <div className="bg-[#0E2740] rounded-md p-2">
+              <div className="text-sm font-bold text-red-500">{result.losses}</div>
+              <div className="text-[10px] text-[#6E93B8]">Défaites</div>
+            </div>
+          </div>
+          <div className="flex justify-between items-center text-xs">
+            <span className="text-[#6E93B8]">Meilleure main :</span>
+            <span className="font-bold">{result.handCategory}</span>
+          </div>
+          {result.outs > 0 && boardCards.length < 5 && (
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-[#6E93B8]">Outs (améliorations) :</span>
+              <span className="font-bold">{result.outs} cartes</span>
+            </div>
+          )}
+          <p className="text-[10px] text-[#53749B] text-center mt-2">
+            Simulation Monte Carlo · {result.total.toLocaleString()} itérations
+          </p>
+        </div>
+      )}
+      {isCalculating && result && (
+        <p className="text-xs text-[#53749B] text-center">
+          ⏳ Affinage de l'équité… {Math.min(100, Math.round((result.total / 3000) * 100))}%
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// HandReviewPanel — analyse heuristique locale
+// (Supabase non disponible dans le canvas : version locale)
+// ============================================================
+
+type Decision = { street: string; action: string; verdict: string; meilleure_option: string; explication: string };
+type Analysis = { resume: string; heros?: string; note?: number; decisions: Decision[]; axes_travail: string[] };
+
+const VERDICT_STYLE: Record<string, string> = {
+  bon: 'bg-[#0E2740] border-[#123350]',
+  imprécis: 'bg-sky-950 border-sky-800',
+  erreur: 'bg-rose-950 border-rose-800',
+};
+
+function localAnalyze(history: string): Analysis {
+  const lines = history.split('\n');
+  const decisions: Decision[] = [];
+  const streetOf = (l: string) => /flop/i.test(l) ? 'FLOP' : /turn/i.test(l) ? 'TURN' : /river/i.test(l) ? 'RIVER' : /blind/i.test(l) || /dealt/i.test(l) ? 'PREFLOP' : 'PREFLOP';
+  lines.forEach(l => {
+    const lower = l.toLowerCase();
+    const street = streetOf(l);
+    if (/\b(bets|raises)\b/i.test(l)) {
+      const m = l.match(/\d+(?:[.,]\d+)?/g);
+      const isBig = m && m.length >= 2 && parseFloat(m[m.length - 1]) > 2.5 * parseFloat(m[m.length - 2]);
+      decisions.push({
+        street,
+        action: /raises/i.test(l) ? 'Raise' : 'Bet',
+        verdict: isBig ? 'imprécis' : 'bon',
+        meilleure_option: isBig ? 'Sizing plus standard (55-75% pot)' : '—',
+        explication: isBig
+          ? 'Le montant semble très gros par rapport au pot : en hyper-turbo ça isole les mains fortes. Réduis vers un sizing GTO standard.'
+          : 'Aggression cohérente avec la range attendue — rien à signaler.',
+      });
+    } else if (/\bcalls\b/i.test(l)) {
+      decisions.push({
+        street, action: 'Call', verdict: 'bon',
+        meilleure_option: '—',
+        explication: 'Call défendable — vérifie que ta cote du pot justifie le suivi face à la range adverse.',
+      });
+    } else if (/\bfolds\b/i.test(l)) {
+      decisions.push({
+        street, action: 'Fold', verdict: 'bon',
+        meilleure_option: '—',
+        explication: 'Fold prudent — pas de leak évident détecté par l\'analyse locale.',
+      });
+    } else if (/\bchecks\b/i.test(l)) {
+      decisions.push({
+        street, action: 'Check', verdict: 'imprécis',
+        meilleure_option: 'Petite mise de protection (25-33% pot) si board sec',
+        explication: 'Check passif : sur boards secs, une petite fréquence d\'agression est souvent meilleure en position d\'agresseur.',
+      });
+    }
+  });
+  const note = decisions.length ? Math.max(4, 10 - decisions.filter(d => d.verdict === 'erreur').length * 2 - decisions.filter(d => d.verdict === 'imprécis').length) : null;
+  return {
+    resume: `Main analysée localement : ${decisions.length} décision(s) détectée(s). ${decisions.filter(d => d.verdict === 'bon').length} conforme(s), ${decisions.filter(d => d.verdict === 'imprécis').length} imprécise(s).`,
+    heros: 'Analyse heuristique locale (l\'IA Supabase du projet n\'est pas joignable depuis ce canvas).',
+    note: note ?? undefined,
+    decisions: decisions.slice(0, 12),
+    axes_travail: [
+      'Travailler les sizings de c-bet : 25-33% sur boards secs, 66-75% sur boards mouillés.',
+      'En push/fold (≤15bb), réviser les charts Nash plutôt que min-raise/fold.',
+      "Vérifier la défense de BB face aux opens BTN : c'est le leak le plus fréquent en MTT.",
+    ],
+  };
+}
+
+function HandReviewPanel() {
+  const [history, setHistory] = useState('');
+  const [analysis, setAnalysis] = useState<Analysis | null>(null);
+
+  const analyze = () => {
+    setAnalysis(localAnalyze(history));
+  };
+
+  return (
+    <div className="max-w-3xl space-y-4">
+      <div className="p-4 bg-[#0A1D30] rounded-lg border border-[#123350] space-y-3">
+        <h2 className="text-lg font-bold">🧠 Coach IA · Revue de main</h2>
+        <p className="text-sm text-[#6E93B8]">
+          Colle l'historique texte d'une main (Winamax, PokerStars…). Analyse heuristique locale dans ce canvas —
+          l'IA du projet (edge function Supabase) reste nécessaire pour l'analyse complète.
+        </p>
+        <textarea
+          value={history}
+          onChange={(e) => setHistory(e.target.value)}
+          placeholder="Winamax Poker - Tournament ... Dealt to Hero [Ah Kd] ..."
+          className="min-h-[200px] w-full rounded-md bg-[#071523] border border-[#123350] p-3 font-mono text-xs text-slate-100 focus:outline-none focus:border-emerald-600"
+        />
+        <button
+          onClick={analyze}
+          disabled={history.trim().length < 20}
+          className="px-5 py-2.5 rounded-md text-sm font-bold bg-emerald-600 text-white disabled:bg-[#0E2740] disabled:text-[#53749B] hover:bg-emerald-500 transition"
+        >
+          Analyser la main
+        </button>
+      </div>
+
+      {analysis && (
+        <div className="space-y-4">
+          <div className="p-4 bg-[#0A1D30] rounded-lg border border-[#123350] space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="font-bold">Résumé</h3>
+              {typeof analysis.note === 'number' && (
+                <span className="px-3 py-1 rounded-md bg-emerald-600 text-white font-bold text-sm">{analysis.note}/10</span>
+              )}
+            </div>
+            {analysis.heros && <p className="text-xs text-[#53749B]">{analysis.heros}</p>}
+            <p className="text-sm whitespace-pre-wrap">{analysis.resume}</p>
+          </div>
+
+          {analysis.decisions.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="font-bold">Décisions</h3>
+              {analysis.decisions.map((d, i) => (
+                <div key={i} className={`p-3 rounded-lg border ${VERDICT_STYLE[d.verdict] ?? 'bg-[#0A1D30] border-[#123350]'}`}>
+                  <div className="flex items-center justify-between text-xs uppercase font-bold tracking-wider mb-1">
+                    <span>{d.street}</span><span>{d.verdict}</span>
+                  </div>
+                  <p className="text-sm"><strong>Joué :</strong> {d.action}</p>
+                  {d.verdict !== 'bon' && <p className="text-sm"><strong>Mieux :</strong> {d.meilleure_option}</p>}
+                  <p className="text-sm text-[#6E93B8] mt-1">{d.explication}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="p-4 bg-[#0A1D30] rounded-lg border border-[#123350]">
+            <h3 className="font-bold mb-2">🎯 Ajustements à travailler</h3>
+            <ul className="list-disc pl-5 space-y-1 text-sm">
+              {analysis.axes_travail.map((a, i) => <li key={i}>{a}</li>)}
+            </ul>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// APP — Index
+// ============================================================
+
+type GameMode = 'expresso' | 'tournament' | 'trident';
+type TournamentTab = 'preflop' | 'postflop' | 'explorer';
+type Screen = 'rta' | 'analyse' | 'coach' | 'winamax';
+
+function App() {
+  const [mode, setMode] = useState<GameMode>('tournament');
+  const [screen, setScreen] = useState<Screen>('analyse');
+  const [position, setPosition] = useState<Position>('CO');
+  const [scenario, setScenario] = useState<ScenarioType>('RFI');
+  const [hoveredCell, setHoveredCell] = useState<CellData | null>(null);
+  const [stack, setStack] = useState<StackDepth>('deep');
+  const [phase, setPhase] = useState<TournamentPhase>('early');
+  const [buyIn, setBuyIn] = useState<BuyIn>('50');
+  const [tournamentTab, setTournamentTab] = useState<TournamentTab>('preflop');
+  const [selectedHand, setSelectedHand] = useState<string | null>(null);
+  const [allInDepth, setAllInDepth] = useState<AllInDepth>('15bb');
+  const [playersLeft, setPlayersLeft] = useState(300);
+  const [avgBB, setAvgBB] = useState(75);
+  const [exactBB, setExactBB] = useState<number | null>(null);
+
+  const resolvedStack: StackDepth = exactBB !== null ? resolveStackDepth(exactBB) : stack;
+  const myTBB = exactBB !== null ? exactBB : STACK_DEPTH_MIDBB[stack];
+
+  const tPressure = useMemo(
+    () => tournamentPressure(exactBB !== null ? exactBB : stack, avgBB, playersLeft),
+    [stack, exactBB, avgBB, playersLeft],
+  );
+
+  const data = useMemo(() => {
+    if (scenario !== 'RFI') {
+      return getRangeData(position, scenario, allInDepth);
+    }
+    const rfiGrid = trimRFI(getTournamentRFI(position, resolvedStack, phase, buyIn), tPressure.factors.raise ?? 1);
+    return RANKS.map((_, row) => RANKS.map((_, col) => {
+      const type = getHandType(row, col);
+      return {
+        action: rfiGrid[row][col] ? 'raise' as Action : 'fold' as Action,
+        label: getHandLabel(row, col),
+        type,
+        combos: getCombos(type),
+      };
+    }));
+  }, [mode, position, scenario, resolvedStack, phase, buyIn, allInDepth, tPressure]);
+
+  const currentScenario = SCENARIOS.find(s => s.value === scenario)!;
+  const currentStack = STACK_DEPTHS.find(s => s.value === stack)!;
+  const currentPhase = TOURNAMENT_PHASES.find(p => p.value === phase)!;
+  const currentBuyIn = BUY_INS.find(b => b.value === buyIn)!;
+  const counts = countActions(data);
+  const playedCombos = 1326 - counts.fold.combos;
+
+  const handleCellClick = useCallback((cell: CellData) => {
+    if (mode === 'tournament' && cell.action !== 'fold') {
+      setSelectedHand(cell.label);
+      setTournamentTab('postflop');
+    }
+  }, [mode]);
+
+  const showPreflopControls = mode === 'tournament' && tournamentTab === 'preflop';
+
+  return (
+    <div className="min-h-screen bg-[#071523] text-slate-100">
+      <header className="border-b border-[#123350]">
+        <div className="max-w-6xl mx-auto px-4 py-5">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-md bg-emerald-600 flex items-center justify-center font-bold text-lg tracking-tighter">W</div>
+            <div>
+              <h1 className="text-lg font-bold tracking-tight">
+                {mode === 'expresso' ? 'Ranges Preflop GTO · Expresso 3-max' : mode === 'trident' ? 'Ranges Preflop GTO · Le Trident (2 jours · 3-max)' : 'Ranges Preflop GTO · MTT 6-max'}
+              </h1>
+              <p className="text-xs text-[#6E93B8]">
+                Basé sur les solutions GTO+ · {mode === 'expresso' ? 'Expresso · 3 joueurs · hyper-turbo' : mode === 'trident' ? 'Trident · 3 joueurs · 2 jours · ICM' : `Tournoi ${currentBuyIn.label} · ${currentStack.bbRange}`}
+              </p>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-6xl mx-auto px-4 py-6">
+        <div className="mb-5 flex gap-2">
+          <button onClick={() => setScreen('rta')} className={`px-6 py-3 rounded-md text-base font-extrabold transition-all duration-150 ${screen === 'rta' ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/30' : 'bg-[#0E2740] text-[#9FC0DD] hover:bg-slate-700'}`}>⚡ RTA Éclair</button>
+          <button onClick={() => setScreen('analyse')} className={`px-6 py-3 rounded-md text-base font-extrabold transition-all duration-150 ${screen === 'analyse' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20' : 'bg-[#0E2740] text-[#9FC0DD] hover:bg-slate-700'}`}>📚 Analyse</button>
+          <button onClick={() => setScreen('coach')} className={`px-6 py-3 rounded-md text-base font-extrabold transition-all duration-150 ${screen === 'coach' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20' : 'bg-[#0E2740] text-[#9FC0DD] hover:bg-slate-700'}`}>🧠 Coach IA</button>
+          <button onClick={() => setScreen('winamax')} className={`px-6 py-3 rounded-md text-base font-extrabold transition-all duration-150 ${screen === 'winamax' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20' : 'bg-[#0E2740] text-[#9FC0DD] hover:bg-slate-700'}`}>🎰 Tournois</button>
+        </div>
+
+        {screen === 'rta' ? (
+          <RtaPanel />
+        ) : screen === 'coach' ? (
+          <HandReviewPanel />
+        ) : screen === 'winamax' ? (
+          <WinamaxCatalogPanel />
+        ) : (
+        <>
+        <div className="mb-5">
+          <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Mode de jeu</label>
+          <div className="flex gap-2">
+            <button onClick={() => setMode('expresso')} className={`px-5 py-2.5 rounded-md text-sm font-bold transition-all duration-150 ${mode === 'expresso' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20' : 'bg-[#0E2740] text-[#9FC0DD] hover:bg-slate-700'}`}>☕ Expresso (3 max)</button>
+            <button onClick={() => setMode('tournament')} className={`px-5 py-2.5 rounded-md text-sm font-bold transition-all duration-150 ${mode === 'tournament' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20' : 'bg-[#0E2740] text-[#9FC0DD] hover:bg-slate-700'}`}>🏆 Tournoi</button>
+            <button onClick={() => setMode('trident')} className={`px-5 py-2.5 rounded-md text-sm font-bold transition-all duration-150 ${mode === 'trident' ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-600/20' : 'bg-[#0E2740] text-[#9FC0DD] hover:bg-slate-700'}`}>🔱 Trident</button>
+          </div>
+        </div>
+
+        {mode === 'tournament' && (
+          <div className="mb-5">
+            <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Analyse</label>
+            <div className="flex gap-2">
+              {([['preflop','🎯 Preflop'],['postflop','📊 Post-Flop'],['explorer','📋 Toutes les Ranges']] as const).map(([k, l]) => (
+                <button key={k} onClick={() => setTournamentTab(k)} className={`px-4 py-2 rounded-md text-sm font-semibold transition-all duration-150 ${tournamentTab === k ? 'bg-slate-700 text-white border border-emerald-600 shadow-sm' : 'bg-[#0E2740] text-[#9FC0DD] hover:bg-slate-700'}`}>{l}</button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {showPreflopControls && (
+          <div className="space-y-4 mb-6">
+            <div>
+              <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Scénario</label>
+              <div className="flex flex-wrap gap-2">
+                {SCENARIOS.map(s => (
+                  <button key={s.value} onClick={() => setScenario(s.value)} className={`px-4 py-2 rounded-md text-sm font-semibold transition ${scenario === s.value ? 'bg-emerald-600 text-white' : 'bg-[#0E2740] text-[#9FC0DD] hover:bg-slate-700'}`}>{s.label}</button>
+                ))}
+              </div>
+              <p className="text-xs text-[#53749B] mt-1">{currentScenario.description}</p>
+            </div>
+
+            {scenario === 'allIn' && (
+              <div className="max-w-xs">
+                <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Profondeur de tapis</label>
+                <Select value={allInDepth} onValueChange={(v) => setAllInDepth(v as AllInDepth)}>
+                  <SelectTrigger className="w-full h-11 bg-[#0E2740] border-[#123350]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {ALLIN_DEPTHS.map(d => <SelectItem key={d.value} value={d.value}>{d.label} — {d.description}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className="grid sm:grid-cols-3 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Profondeur de tapis</label>
+                <Select value={stack} onValueChange={(v) => { setStack(v as StackDepth); setExactBB(null); }}>
+                  <SelectTrigger className="w-full h-11 bg-[#0E2740] border-[#123350]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {STACK_DEPTHS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Phase de jeu</label>
+                <Select value={phase} onValueChange={(v) => setPhase(v as TournamentPhase)}>
+                  <SelectTrigger className="w-full h-11 bg-[#0E2740] border-[#123350]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {TOURNAMENT_PHASES.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Buy-in</label>
+                <Select value={buyIn} onValueChange={(v) => setBuyIn(v as BuyIn)}>
+                  <SelectTrigger className="w-full h-11 bg-[#0E2740] border-[#123350]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {BUY_INS.map(b => <SelectItem key={b.value} value={b.value}>{b.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">🎯 Tapis exact (1-200bb)</label>
+              <input
+                type="number" min={1} max={200} value={exactBB ?? ''}
+                placeholder="vide = menu ci-dessus"
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === '') { setExactBB(null); return; }
+                  const n = parseInt(v, 10);
+                  if (!isNaN(n)) setExactBB(Math.max(1, Math.min(200, n)));
+                }}
+                className="h-11 w-full rounded-md bg-[#0E2740] border border-[#123350] px-3 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+              />
+              {exactBB !== null && (
+                <p className="text-xs text-emerald-400 mt-1">Range affichée : {STACK_DEPTHS.find(s => s.value === resolvedStack)!.label}</p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
+              <div>
+                <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Joueurs restants</label>
+                <input
+                  type="number" min={6} max={10000} value={playersLeft}
+                  onChange={(e) => setPlayersLeft(Math.max(6, Math.min(10000, parseInt(e.target.value, 10) || 6)))}
+                  className="h-11 w-full rounded-md bg-[#0E2740] border border-[#123350] px-3 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Tapis moyen (bb)</label>
+                <input
+                  type="number" min={1} max={5000} value={avgBB}
+                  onChange={(e) => setAvgBB(Math.max(1, Math.min(5000, parseInt(e.target.value, 10) || 1)))}
+                  className="h-11 w-full rounded-md bg-[#0E2740] border border-[#123350] px-3 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Position vs le field</label>
+                <div className="h-11 rounded-md bg-[#0E2740] border border-[#123350] px-3 flex items-center justify-between">
+                  <span className="text-sm font-bold">{tPressure.label}</span>
+                  <span className="font-mono text-xs text-[#6E93B8]">
+                    ~{myTBB}bb vs {avgBB}bb · {(myTBB / avgBB).toFixed(2)}×
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2 block">Position — {POSITION_FULL_NAMES[position]}</label>
+              <div className="flex flex-wrap gap-2">
+                {POSITIONS.map(p => (
+                  <button key={p} onClick={() => setPosition(p)} className={`px-4 py-2 rounded-md text-sm font-bold w-14 transition ${position === p ? 'bg-amber-500 text-slate-900' : 'bg-[#0E2740] text-[#9FC0DD] hover:bg-slate-700'}`}>{p}</button>
+                ))}
+              </div>
+            </div>
+
+            <p className="text-sm text-[#6E93B8] bg-[#0A1D30] rounded-md px-3 py-2 border border-[#123350]">
+              {`${currentBuyIn.description} · ${currentPhase.description}`}
+            </p>
+            <p className="text-sm text-[#9FC0DD] bg-[#0E2740]/30 rounded-md px-3 py-2 border border-[#123350]/50">
+              {tPressure.advice} {tPressure.factors.raise && tPressure.factors.raise < 1 ? 'La range RFI affichée est déjà resserrée en conséquence.' : ''}
+            </p>
+          </div>
+        )}
+
+        {showPreflopControls ? (
+          <div className="flex flex-col lg:flex-row gap-6">
+            <div className="flex-1 min-w-0">
+              <RangeGrid data={data} onHover={setHoveredCell} onClick={handleCellClick} />
+              <p className="text-xs text-[#53749B] mt-2 text-center">💡 Clique sur une main pour analyser son équité post-flop</p>
+            </div>
+            <div className="lg:w-72 space-y-5">
+              <HandDetail cell={hoveredCell} />
+              <div className="p-4 bg-[#0A1D30] rounded-lg border border-[#123350]">
+                <p className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-2">Statistiques de la range</p>
+                <Stat label="Mains jouées" value={`${playedCombos} / 1326 combos`} />
+                <Stat label="Fréquence" value={((playedCombos / 1326) * 100).toFixed(1) + '%'} />
+                {(Object.keys(ACTION_LABELS) as Action[]).filter(a => a !== 'fold' && counts[a].count > 0).map(a => (
+                  <Stat key={a} label={ACTION_LABELS[a]} value={`${counts[a].count} mains · ${counts[a].combos} combos`} />
+                ))}
+              </div>
+              <div className="p-4 bg-[#0A1D30] rounded-lg border border-[#123350]">
+                <p className="text-xs font-semibold text-[#6E93B8] uppercase tracking-wider mb-3">Légende</p>
+                <div className="space-y-2">
+                  {(Object.keys(ACTION_LABELS) as Action[]).map(a => (
+                    <div key={a} className="flex items-center gap-2 text-sm">
+                      <span className={`w-4 h-4 rounded ${ACTION_STYLES[a].bg}`} />
+                      <span className="text-[#9FC0DD]">{ACTION_LABELS[a]}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="p-3 bg-[#0A1D30] rounded-lg border border-[#123350] text-xs text-[#6E93B8] space-y-1">
+                <p className="font-semibold text-slate-100">ℹ️ À propos</p>
+                <p>Ranges tournoi ajustées selon la profondeur de tapis et la phase de jeu (pression ICM).</p>
+                <p>Basé sur les solutions GTO+ / ICMizer / HRC pour le MTT 6-max.</p>
+                <p><strong>Très deep (100bb+) :</strong> Jour 1 / Jour 2 de multi-jours — playabilité maximale. <strong>Bulle :</strong> ranges très serrées (ICM maximal).</p>
+                <p>Short stack (15-25bb) : open-shove fréquent selon Nash/Jennifear.</p>
+              </div>
+            </div>
+          </div>
+        ) : mode === 'expresso' ? (
+          <ExpressoPanel />
+        ) : mode === 'trident' ? (
+          <TridentPanel />
+        ) : tournamentTab === 'postflop' ? (
+          <div className="max-w-2xl">
+            <PostFlopAnalyzer preselectedHand={selectedHand || undefined} />
+          </div>
+        ) : (
+          <div>
+            <h2 className="text-lg font-bold mb-4">📋 Toutes les Ranges — RFI Tournoi ({currentStack.label} · {currentPhase.label} · {currentBuyIn.label})</h2>
+            <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-6">
+              {POSITIONS.map(p => {
+                const g = getTournamentRFI(p, stack, phase, buyIn);
+                const d = RANKS.map((_, row) => RANKS.map((_, col) => {
+                  const type = getHandType(row, col);
+                  return { action: g[row][col] ? 'raise' as Action : 'fold' as Action, label: getHandLabel(row, col), type, combos: getCombos(type) };
+                }));
+                return (
+                  <div key={p} className="space-y-2">
+                    <p className="text-sm font-bold text-[#BFD4E8]">{p} <span className="text-xs text-[#53749B] font-normal">{POSITION_FULL_NAMES[p]}</span></p>
+                    <RangeGrid data={d} />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        </>
+        )}
+      </main>
+    </div>
+  );
+}
+const __root = document.getElementById('root');
+ReactDOM.createRoot(__root).render(React.createElement(App));
+document.getElementById('__diag').innerHTML = [
+ 'React: '+(window.__okReact?'OK':'ECHEC'),
+ 'ReactDOM: '+(window.__okRD?'OK':'ECHEC'),
+ 'Compilateur: '+(window.__okComp||'ECHEC'),
+ 'Styles: '+(window.__okCss?'OK':'ECHEC'),
+].join(' · ');
+document.getElementById('__loader')&&(document.getElementById('__loader').style.display='none');
+</script>
+</body>
+</html>
